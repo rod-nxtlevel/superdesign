@@ -70,6 +70,11 @@ const Welcome: React.FC<WelcomeProps> = ({ onGetStarted, vscode }) => {
         }
     };
 
+    const handleSkip = () => {
+        // Skip email submission and proceed directly
+        onGetStarted();
+    };
+
     return (
         <div className="welcome-section">
             <div className="welcome-header">
@@ -86,7 +91,7 @@ const Welcome: React.FC<WelcomeProps> = ({ onGetStarted, vscode }) => {
                         type="email"
                         value={email}
                         onChange={handleEmailChange}
-                        placeholder="Enter your email address"
+                        placeholder="Enter your email address (optional)"
                         className={`email-input ${error ? 'error' : ''}`}
                         disabled={isLoading}
                         autoComplete="email"
@@ -104,6 +109,17 @@ const Welcome: React.FC<WelcomeProps> = ({ onGetStarted, vscode }) => {
                     </button>
                 </div>
             </form>
+
+            <div className="welcome-skip">
+                <button 
+                    type="button"
+                    className="btn-secondary" 
+                    onClick={handleSkip}
+                    disabled={isLoading}
+                >
+                    Skip
+                </button>
+            </div>
         </div>
     );
 };

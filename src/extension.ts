@@ -183,14 +183,18 @@ async function submitEmailToSupabase(email: string, sidebarProvider: ChatSidebar
 		const https = require('https');
 		const postData = JSON.stringify({ email });
 
+		// TODO: Replace with your own Supabase credentials
+		const SUPABASE_HOSTNAME = 'your-project-id.supabase.co';
+		const SUPABASE_API_KEY = 'your-supabase-anon-key-here';
+
 		const options = {
-			hostname: 'egcidyvbkguhrjltyszr.supabase.co',
+			hostname: SUPABASE_HOSTNAME,
 			port: 443,
 			path: '/rest/v1/forms',
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
-				'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVnY2lkeXZia2d1aHJqbHR5c3pyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE2MDU5MjMsImV4cCI6MjA3NzE4MTkyM30.88sJiWsp4AHW9cIFD9ghlfkxA1e2ph5J8XzARLCSLoo',
+				'apikey': SUPABASE_API_KEY,
 				'Content-Length': Buffer.byteLength(postData)
 			}
 		};
