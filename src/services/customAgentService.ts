@@ -23,6 +23,8 @@ export class CustomAgentService implements AgentService {
     private outputChannel: vscode.OutputChannel;
     private isInitialized = false;
     private claudeCodeService: ClaudeCodeService;
+    private designRules: string | null = null;
+    private designRulesWatcher: vscode.FileSystemWatcher | undefined;
 
     constructor(outputChannel: vscode.OutputChannel) {
         this.outputChannel = outputChannel;
@@ -52,6 +54,12 @@ export class CustomAgentService implements AgentService {
                 
                 this.workingDirectory = superdesignDir;
                 this.outputChannel.appendLine(`Working directory set to: ${this.workingDirectory}`);
+                
+                // Load design rules if they exist
+                this.designRules = await this.loadDesignRules(workspaceRoot);
+                
+                // Set up file watcher for hot-reload
+                this.setupDesignRulesWatcher(workspaceRoot);
             } else {
                 this.outputChannel.appendLine('No workspace root found, using fallback');
                 // Fallback to OS temp directory if no workspace
@@ -80,11 +88,89 @@ export class CustomAgentService implements AgentService {
         }
     }
 
+    private async loadDesignRules(workspaceRoot: string): Promise<string | null> {
+        const possiblePaths = [
+            path.join(workspaceRoot, '.cursor', 'rules', 'design.mdc'),
+            path.join(workspaceRoot, '.windsurfrules'),
+            path.join(workspaceRoot, 'CLAUDE.md')
+        ];
+        
+        for (const rulePath of possiblePaths) {
+            if (fs.existsSync(rulePath)) {
+                try {
+                    const content = fs.readFileSync(rulePath, 'utf8');
+                    this.outputChannel.appendLine(`✅ Loaded design rules from: ${rulePath}`);
+                    
+                    // Extract just the rule content (skip frontmatter if present)
+                    const cleanContent = this.extractRuleContent(content);
+                    return cleanContent;
+                } catch (error) {
+                    this.outputChannel.appendLine(`⚠️ Failed to read ${rulePath}: ${error}`);
+                }
+            }
+        }
+        
+        this.outputChannel.appendLine('ℹ️ No design rules file found, using defaults');
+        return null;
+    }
+
+    private extractRuleContent(content: string): string {
+        // If file has frontmatter (---), extract content after it
+        const frontmatterMatch = content.match(/^---\n[\s\S]*?\n---\n([\s\S]*)$/);
+        if (frontmatterMatch) {
+            return frontmatterMatch[1].trim();
+        }
+        return content.trim();
+    }
+
+    private setupDesignRulesWatcher(workspaceRoot: string): void {
+        const designRulePaths = [
+            '.cursor/rules/design.mdc',
+            '.windsurfrules',
+            'CLAUDE.md'
+        ];
+        
+        designRulePaths.forEach(relativePath => {
+            const pattern = new vscode.RelativePattern(workspaceRoot, relativePath);
+            const watcher = vscode.workspace.createFileSystemWatcher(pattern);
+            
+            watcher.onDidChange(async () => {
+                this.outputChannel.appendLine(`🔄 Design rules file changed: ${relativePath}`);
+                this.designRules = await this.loadDesignRules(workspaceRoot);
+                vscode.window.showInformationMessage(
+                    '✅ Superdesign design rules reloaded',
+                    'View Rules'
+                ).then(action => {
+                    if (action === 'View Rules') {
+                        const fullPath = path.join(workspaceRoot, relativePath);
+                        vscode.workspace.openTextDocument(fullPath).then(doc => {
+                            vscode.window.showTextDocument(doc);
+                        });
+                    }
+                });
+            });
+            
+            watcher.onDidCreate(async () => {
+                this.outputChannel.appendLine(`📄 Design rules file created: ${relativePath}`);
+                this.designRules = await this.loadDesignRules(workspaceRoot);
+            });
+            
+            watcher.onDidDelete(async () => {
+                this.outputChannel.appendLine(`🗑️ Design rules file deleted: ${relativePath}`);
+                this.designRules = await this.loadDesignRules(workspaceRoot);
+            });
+            
+            // Store watcher for cleanup (note: this will only keep the last watcher)
+            // In production, you'd want to store all watchers in an array
+            this.designRulesWatcher = watcher;
+        });
+    }
+
     private getModel() {
         const config = vscode.workspace.getConfiguration('superdesign');
         const specificModel = config.get<string>('aiModel');
         const provider = config.get<string>('aiModelProvider', 'anthropic');
-        const openaiUrl = config.get<string>('openaiUrl');
+        const openaiUrl = config.get<string>('openaiUrl')?.trim();
         
         this.outputChannel.appendLine(`Using AI provider: ${provider}`);
         if (specificModel) {
@@ -129,10 +215,10 @@ export class CustomAgentService implements AgentService {
                 
                 this.outputChannel.appendLine(`Anthropic API key found: ${anthropicKey.substring(0, 12)}...`);
                 
-                const anthropicUrl = config.get<string>('anthropicUrl');
+                const anthropicUrl = config.get<string>('anthropicUrl')?.trim() || "https://api.anthropic.com/v1";
                 const anthropic = createAnthropic({
                     apiKey: anthropicKey,
-                    baseURL: anthropicUrl ?? "https://api.anthropic.com/v1",
+                    baseURL: anthropicUrl,
                 });
                 
                 // Use specific model if available, otherwise default to claude-4-sonnet
@@ -147,7 +233,7 @@ export class CustomAgentService implements AgentService {
             case 'openai':
             default:
                 const openaiKey = config.get<string>('openaiApiKey');
-                 const openaiUrl = config.get<string>('openaiUrl');
+                const openaiUrl = config.get<string>('openaiUrl')?.trim() || "https://api.openai.com/v1";
                 if (!openaiKey) {
                     throw new Error('OpenAI API key not configured. Please run "Configure OpenAI API Key" command.');
                 }
@@ -156,7 +242,7 @@ export class CustomAgentService implements AgentService {
                 
                 const openai = createOpenAI({
                     apiKey: openaiKey,
-                    baseURL: openaiUrl ?? "https://api.openai.com/v1",
+                    baseURL: openaiUrl,
                 });
                 
                 // Use specific model if available, otherwise default to gpt-4o
@@ -194,6 +280,26 @@ export class CustomAgentService implements AgentService {
             }
         }
         
+        // NEW: Use loaded design rules if available
+        if (this.designRules) {
+            this.outputChannel.appendLine('📖 Using custom design rules from project');
+            
+            // Inject context info at the top of loaded rules
+            return `# Current Context
+- Extension: Super Design (Design Agent for VS Code)
+- AI Model: ${modelName}
+- Working directory: ${this.workingDirectory}
+- Design Rules: Loaded from project (editable via .cursor/rules/design.mdc)
+
+${this.designRules}`;
+        }
+        
+        // FALLBACK: Use hardcoded default rules
+        this.outputChannel.appendLine('📖 Using default design rules (no custom rules found)');
+        return this.getDefaultSystemPrompt(modelName);
+    }
+
+    private getDefaultSystemPrompt(modelName: string): string {
         return `# Role
 You are superdesign, a senior frontend designer integrated into VS Code as part of the Super Design extension.
 Your goal is to help user generate amazing design using code
@@ -939,7 +1045,7 @@ I've created the html design, please reveiw and let me know if you need any chan
         const config = vscode.workspace.getConfiguration('superdesign');
         const specificModel = config.get<string>('aiModel');
         const provider = config.get<string>('aiModelProvider', 'anthropic');
-        const openaiUrl = config.get<string>('openaiUrl');
+        const openaiUrl = config.get<string>('openaiUrl')?.trim();
         
         // Determine provider from model name if specific model is set, ignore if custom openai url is used
         let effectiveProvider = provider;

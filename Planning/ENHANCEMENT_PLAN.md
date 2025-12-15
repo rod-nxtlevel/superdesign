@@ -1,7 +1,7 @@
 # Superdesign Enhancement Plan
 
-**Version:** 1.0  
-**Date:** December 15, 2024  
+**Version:** 1.1  
+**Date:** January 2025  
 **Purpose:** Transform Superdesign into a production-ready design tool for existing projects
 
 ---
@@ -11,6 +11,915 @@
 This document outlines planned enhancements to make Superdesign deeply integrated with existing development projects. The goal is to make generated designs context-aware, matching the project's framework, styling system, and component patterns automatically.
 
 **Core Philosophy:** Superdesign generates HTML mockups for rapid design exploration, then helps bridge the gap to production code through intelligent context awareness and tooling.
+
+---
+
+## Phase 0: Critical UX Improvements (Highest Priority)
+
+### 0.1. Native Browser Preview Integration
+
+**Status:** Not Implemented  
+**Priority:** **HIGHEST**  
+**Complexity:** Low-Medium  
+**Timeline:** 3-5 days
+
+#### Background
+Currently, Superdesign uses a custom Canvas view with constrained iframes that have limited viewport sizes, no auto-refresh, and cumbersome zoom controls. This creates a poor preview experience compared to native browser capabilities.
+
+#### Objective
+Integrate Cursor/VS Code's native Simple Browser for full-featured HTML preview while maintaining the Canvas view for quick previews and design management actions.
+
+#### Implementation Details
+
+**A. Add "Open in Browser" Action to Design Frames**
+
+Add a new button to the design frame dropdown menu that opens the selected design in Cursor's native Simple Browser:
+
+```typescript
+// In src/webview/components/DesignFrame.tsx
+
+const handleOpenInBrowser = () => {
+    if (vscode) {
+        vscode.postMessage({
+            command: 'openInSimpleBrowser',
+            filePath: file.path
+        });
+    }
+};
+
+// Add to dropdown menu (around line 720):
+<button
+    className="dropdown-item"
+    onClick={(e) => {
+        e.stopPropagation();
+        handleOpenInBrowser();
+        setShowCopyDropdown(false);
+    }}
+    title="Open in native browser (full viewport, auto-refresh, DevTools)"
+>
+    <svg className="dropdown-icon" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M14 2H2a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1zM2 12V3h12v9H2z"/>
+    </svg>
+    Open in Browser
+</button>
+```
+
+**B. Extension Message Handler**
+
+Handle the message in the extension to open files in Simple Browser:
+
+```typescript
+// In src/extension.ts (around line 1750, in SuperdesignCanvasPanel)
+
+// Handle message from webview
+webview.onDidReceiveMessage(
+    async (message) => {
+        switch (message.command) {
+            // ... existing cases ...
+            
+            case 'openInSimpleBrowser':
+                try {
+                    const fileUri = vscode.Uri.file(message.filePath);
+                    // Use VS Code's Simple Browser command
+                    await vscode.commands.executeCommand(
+                        'simpleBrowser.show',
+                        fileUri.toString()
+                    );
+                    Logger.info(`Opened ${message.filePath} in Simple Browser`);
+                } catch (error) {
+                    Logger.error(`Failed to open in browser: ${error}`);
+                    vscode.window.showErrorMessage(
+                        `Failed to open design in browser: ${error}`
+                    );
+                }
+                break;
+        }
+    },
+    null,
+    this._disposables
+);
+```
+
+**C. File Watcher for Auto-Refresh**
+
+Optionally add a file watcher to auto-refresh the Simple Browser when design files change:
+
+```typescript
+// Watch for changes and refresh browser if open
+private _browserWatcher: vscode.FileSystemWatcher | undefined;
+
+private _setupBrowserWatcher() {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) return;
+    
+    const designPattern = new vscode.RelativePattern(
+        workspaceFolder,
+        '.superdesign/design_iterations/**/*.{html,svg,css}'
+    );
+    
+    this._browserWatcher = vscode.workspace.createFileSystemWatcher(designPattern);
+    
+    this._browserWatcher.onDidChange(async (uri) => {
+        // Notify Simple Browser to refresh if it's showing this file
+        // Note: Simple Browser may handle this automatically
+        Logger.info(`Design file changed: ${uri.fsPath}`);
+    });
+    
+    this._disposables.push(this._browserWatcher);
+}
+```
+
+**D. Update Canvas Empty State**
+
+Update the empty state message to mention browser preview:
+
+```typescript
+// In src/webview/components/CanvasView.tsx (around line 601)
+<p>
+    Prompt Superdesign OR Cursor/Windsurf/Claude Code to design UI like{' '}
+    <kbd>Help me design a calculator UI</kbd> and preview the UI here.
+    <br />
+    <small style={{ opacity: 0.7 }}>
+        Tip: Use the dropdown menu on any design to open it in a full browser view.
+    </small>
+</p>
+```
+
+#### Benefits
+- ✅ **Full viewport rendering** - No size constraints
+- ✅ **Native browser features** - Zoom, refresh, DevTools
+- ✅ **Auto-refresh** - VS Code watches file changes
+- ✅ **Better UX** - Familiar browser interface
+- ✅ **Keep Canvas** - Still available for quick previews and shortcuts
+- ✅ **Best of both worlds** - Quick preview in Canvas, full preview in browser
+
+#### User Workflow
+1. Generate designs → appear in Canvas
+2. Quick preview in Canvas (with shortcuts: Create variations, Iterate, Copy prompt)
+3. Click "Open in Browser" for full-featured preview
+4. Make changes → browser auto-refreshes
+5. Use browser DevTools for debugging
+
+---
+
+### 0.2. Design Lifecycle Management
+
+**Status:** Not Implemented  
+**Priority:** **HIGH**  
+**Complexity:** Medium  
+**Timeline:** 1-2 weeks
+
+#### Background
+Currently, Superdesign has no way to manage the design lifecycle. Designs accumulate indefinitely in `.superdesign/design_iterations/` with no way to:
+- Mark designs as "approved" or "final"
+- Archive old iterations
+- Delete unwanted designs
+- Organize by status, tags, or date
+- Clean up after selecting a final design
+
+This leads to thousands of unmanaged design files that become impossible to navigate.
+
+#### Objective
+Implement a comprehensive design management system that tracks design status, enables organization, and provides cleanup tools.
+
+#### Implementation Details
+
+**A. Design Metadata System**
+
+Create a metadata file to track design lifecycle:
+
+```typescript
+// src/types/designMetadata.ts
+
+export interface DesignMetadata {
+  fileName: string;
+  status: 'draft' | 'review' | 'approved' | 'archived' | 'exported';
+  createdAt: Date;
+  updatedAt: Date;
+  parentDesign?: string;  // For iterations (e.g., login_3_1.html → login_3.html)
+  tags?: string[];        // e.g., ['login', 'mobile', 'dark-mode', 'v2']
+  notes?: string;         // User notes about the design
+  exportedTo?: string;    // Path where it was exported (e.g., 'src/components/Login.tsx')
+  version?: number;       // Version number for tracking
+}
+
+// Storage: .superdesign/design_metadata.json
+export interface DesignMetadataStore {
+  designs: Record<string, DesignMetadata>;  // Key: fileName
+  lastUpdated: Date;
+  version: string;
+}
+```
+
+**B. Canvas UI Enhancements**
+
+Add status management buttons to each design frame:
+
+```typescript
+// In src/webview/components/DesignFrame.tsx
+
+// Add status buttons below the design preview
+<div className="design-actions">
+  {/* Status Quick Actions */}
+  <div className="status-buttons">
+    <button
+      className={`status-btn ${metadata?.status === 'approved' ? 'active' : ''}`}
+      onClick={() => handleSetStatus('approved')}
+      title="Mark as approved (final design)"
+    >
+      ⭐ Approve
+    </button>
+    <button
+      className={`status-btn ${metadata?.status === 'archived' ? 'active' : ''}`}
+      onClick={() => handleSetStatus('archived')}
+      title="Archive (hide from main view)"
+    >
+      📦 Archive
+    </button>
+    <button
+      className="status-btn delete-btn"
+      onClick={handleDelete}
+      title="Delete permanently"
+    >
+      🗑️ Delete
+    </button>
+  </div>
+  
+  {/* Additional Actions */}
+  <div className="meta-actions">
+    <button onClick={handleAddTag}>🏷️ Tag</button>
+    <button onClick={handleAddNote}>📝 Notes</button>
+    <button onClick={handleExport}>📤 Export</button>
+  </div>
+</div>
+```
+
+**C. Filter & Organization Toolbar**
+
+Add filtering controls to Canvas toolbar:
+
+```typescript
+// In src/webview/components/CanvasView.tsx
+
+// Add to toolbar (around line 635)
+<div className="toolbar-section">
+  <div className="filter-group">
+    {/* Status Filter */}
+    <select
+      className="filter-select"
+      value={statusFilter}
+      onChange={(e) => setStatusFilter(e.target.value)}
+    >
+      <option value="all">All Status</option>
+      <option value="draft">Draft</option>
+      <option value="review">In Review</option>
+      <option value="approved">Approved</option>
+      <option value="archived">Archived</option>
+    </select>
+    
+    {/* Tag Filter */}
+    <select
+      className="filter-select"
+      value={tagFilter}
+      onChange={(e) => setTagFilter(e.target.value)}
+    >
+      <option value="all">All Tags</option>
+      {availableTags.map(tag => (
+        <option key={tag} value={tag}>{tag}</option>
+      ))}
+    </select>
+    
+    {/* Date Filter */}
+    <select
+      className="filter-select"
+      value={dateFilter}
+      onChange={(e) => setDateFilter(e.target.value)}
+    >
+      <option value="all">All Time</option>
+      <option value="today">Today</option>
+      <option value="week">Last 7 Days</option>
+      <option value="month">Last 30 Days</option>
+    </select>
+    
+    {/* Search */}
+    <input
+      type="text"
+      className="search-input"
+      placeholder="Search designs..."
+      value={searchQuery}
+      onChange={(e) => setSearchQuery(e.target.value)}
+    />
+  </div>
+</div>
+```
+
+**D. Bulk Operations**
+
+Add commands for bulk management:
+
+```typescript
+// In src/extension.ts
+
+// Command: Archive all non-approved designs older than 30 days
+vscode.commands.registerCommand('superdesign.cleanupOldDesigns', async () => {
+  const metadata = await loadDesignMetadata();
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  
+  const toArchive = Object.values(metadata.designs).filter(design => {
+    return design.status !== 'approved' && 
+           design.createdAt < thirtyDaysAgo;
+  });
+  
+  if (toArchive.length === 0) {
+    vscode.window.showInformationMessage('No old designs to archive.');
+    return;
+  }
+  
+  const action = await vscode.window.showWarningMessage(
+    `Archive ${toArchive.length} old designs?`,
+    'Archive', 'Cancel'
+  );
+  
+  if (action === 'Archive') {
+    for (const design of toArchive) {
+      await updateDesignStatus(design.fileName, 'archived');
+    }
+    vscode.window.showInformationMessage(
+      `Archived ${toArchive.length} designs.`
+    );
+  }
+});
+
+// Command: Delete all archived designs
+vscode.commands.registerCommand('superdesign.deleteArchived', async () => {
+  const metadata = await loadDesignMetadata();
+  const archived = Object.values(metadata.designs)
+    .filter(d => d.status === 'archived');
+  
+  if (archived.length === 0) {
+    vscode.window.showInformationMessage('No archived designs to delete.');
+    return;
+  }
+  
+  const action = await vscode.window.showWarningMessage(
+    `Permanently delete ${archived.length} archived designs?`,
+    'Delete', 'Cancel'
+  );
+  
+  if (action === 'Delete') {
+    for (const design of archived) {
+      await deleteDesignFile(design.fileName);
+      await removeDesignMetadata(design.fileName);
+    }
+    vscode.window.showInformationMessage(
+      `Deleted ${archived.length} designs.`
+    );
+  }
+});
+```
+
+**E. Archive System**
+
+Implement archive folder structure:
+
+```typescript
+// src/services/designManager.ts
+
+export class DesignManager {
+  async archiveDesign(fileName: string): Promise<void> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) throw new Error('No workspace folder');
+    
+    const sourcePath = vscode.Uri.joinPath(
+      workspaceFolder.uri,
+      '.superdesign',
+      'design_iterations',
+      fileName
+    );
+    
+    const archivePath = vscode.Uri.joinPath(
+      workspaceFolder.uri,
+      '.superdesign',
+      'design_archive',
+      fileName
+    );
+    
+    // Create archive folder if needed
+    const archiveDir = vscode.Uri.joinPath(
+      workspaceFolder.uri,
+      '.superdesign',
+      'design_archive'
+    );
+    try {
+      await vscode.workspace.fs.stat(archiveDir);
+    } catch {
+      await vscode.workspace.fs.createDirectory(archiveDir);
+    }
+    
+    // Move file
+    await vscode.workspace.fs.copy(sourcePath, archivePath, { overwrite: true });
+    await vscode.workspace.fs.delete(sourcePath);
+    
+    // Update metadata
+    await updateDesignStatus(fileName, 'archived');
+  }
+  
+  async restoreFromArchive(fileName: string): Promise<void> {
+    // Move back from archive to active
+    // Update metadata status
+  }
+}
+```
+
+**F. Design Notes & Tags UI**
+
+Add modal/dialog for managing design metadata:
+
+```typescript
+// In src/webview/components/DesignFrame.tsx
+
+const [showMetadataModal, setShowMetadataModal] = useState(false);
+
+const handleAddNote = () => {
+  setShowMetadataModal(true);
+};
+
+// Modal component
+{showMetadataModal && (
+  <div className="metadata-modal">
+    <div className="modal-content">
+      <h3>Manage Design: {file.name}</h3>
+      
+      {/* Status */}
+      <div className="form-group">
+        <label>Status</label>
+        <select
+          value={metadata?.status || 'draft'}
+          onChange={(e) => handleSetStatus(e.target.value)}
+        >
+          <option value="draft">Draft</option>
+          <option value="review">In Review</option>
+          <option value="approved">Approved</option>
+          <option value="archived">Archived</option>
+        </select>
+      </div>
+      
+      {/* Tags */}
+      <div className="form-group">
+        <label>Tags</label>
+        <div className="tag-input">
+          {metadata?.tags?.map(tag => (
+            <span key={tag} className="tag">
+              {tag}
+              <button onClick={() => handleRemoveTag(tag)}>×</button>
+            </span>
+          ))}
+          <input
+            type="text"
+            placeholder="Add tag..."
+            onKeyPress={(e) => {
+              if (e.key === 'Enter') {
+                handleAddTag(e.currentTarget.value);
+                e.currentTarget.value = '';
+              }
+            }}
+          />
+        </div>
+      </div>
+      
+      {/* Notes */}
+      <div className="form-group">
+        <label>Notes</label>
+        <textarea
+          value={metadata?.notes || ''}
+          onChange={(e) => handleUpdateNotes(e.target.value)}
+          placeholder="Add notes about this design..."
+          rows={4}
+        />
+      </div>
+      
+      <div className="modal-actions">
+        <button onClick={() => setShowMetadataModal(false)}>Close</button>
+        <button onClick={handleSaveMetadata}>Save</button>
+      </div>
+    </div>
+  </div>
+)}
+```
+
+**G. Integration with Canvas**
+
+Update Canvas to respect filters and status:
+
+```typescript
+// In src/webview/components/CanvasView.tsx
+
+useEffect(() => {
+  const loadDesigns = async () => {
+    const allFiles = await loadDesignFiles();
+    const metadata = await loadDesignMetadata();
+    
+    // Apply filters
+    let filtered = allFiles;
+    
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter(file => {
+        const meta = metadata[file.name];
+        return meta?.status === statusFilter;
+      });
+    }
+    
+    if (tagFilter !== 'all') {
+      filtered = filtered.filter(file => {
+        const meta = metadata[file.name];
+        return meta?.tags?.includes(tagFilter);
+      });
+    }
+    
+    if (dateFilter !== 'all') {
+      const cutoff = getDateCutoff(dateFilter);
+      filtered = filtered.filter(file => {
+        const meta = metadata[file.name];
+        return meta && new Date(meta.createdAt) >= cutoff;
+      });
+    }
+    
+    if (searchQuery) {
+      filtered = filtered.filter(file => {
+        const meta = metadata[file.name];
+        const searchLower = searchQuery.toLowerCase();
+        return file.name.toLowerCase().includes(searchLower) ||
+               meta?.notes?.toLowerCase().includes(searchLower) ||
+               meta?.tags?.some(t => t.toLowerCase().includes(searchLower));
+      });
+    }
+    
+    // Hide archived by default (unless filter is set to archived)
+    if (statusFilter !== 'archived') {
+      filtered = filtered.filter(file => {
+        const meta = metadata[file.name];
+        return meta?.status !== 'archived';
+      });
+    }
+    
+    setDesignFiles(filtered);
+  };
+  
+  loadDesigns();
+}, [statusFilter, tagFilter, dateFilter, searchQuery]);
+```
+
+#### Benefits
+- ✅ **Design lifecycle tracking** - Know which designs are draft, approved, or archived
+- ✅ **Organization** - Filter by status, tags, date, or search
+- ✅ **Cleanup tools** - Archive old designs, delete unwanted ones
+- ✅ **Notes & tags** - Add context to designs for future reference
+- ✅ **Export tracking** - Know which designs have been exported to code
+- ✅ **Prevents clutter** - Archive system keeps active view clean
+- ✅ **Bulk operations** - Clean up many designs at once
+
+#### User Workflow
+1. Generate 3 design variations → all marked as "draft"
+2. Review in Canvas → mark one as "approved"
+3. Archive the other 2 drafts
+4. Iterate on approved design → new versions created
+5. Final version approved → export to code
+6. Archive old iterations
+7. Canvas shows only active/approved designs by default
+
+#### File Structure
+```
+.superdesign/
+├── design_iterations/        (active designs)
+│   ├── login_1.html
+│   ├── login_2.html
+│   └── login_3.html
+├── design_archive/           (archived designs)
+│   ├── old_header_1.html
+│   └── dashboard_v1.html
+└── design_metadata.json      (status, tags, notes)
+```
+
+---
+
+### 0.3. Design Rules File Integration (CRITICAL BUG FIX)
+
+**Status:** Not Implemented (BUG)  
+**Priority:** **CRITICAL**  
+**Complexity:** Low  
+**Timeline:** 1-2 days
+
+#### Background
+Currently, Superdesign creates design rule files (`.cursor/rules/design.mdc`, `.windsurfrules`, `CLAUDE.md`) during initialization, but **never reads them back**. The `getSystemPrompt()` method uses hardcoded rules instead. This means:
+- User customization is impossible
+- Project-specific design rules don't work
+- Editing design.mdc has no effect on Superdesign's behavior
+- The files are misleading - they appear to control Superdesign but don't
+
+**Real-world impact:** User updated design.mdc with HSL colors and Poppins font for their HomeFront project, but Superdesign still generated designs with oklch colors and Inter font because it wasn't reading the file.
+
+#### Objective
+Make Superdesign read and use design rules from the files it creates, giving users full control over design generation behavior.
+
+#### Implementation Details
+
+**A. Add Design Rules Loader**
+
+```typescript
+// In src/services/customAgentService.ts
+
+// Add class property
+private designRules: string | null = null;
+private designRulesWatcher: vscode.FileSystemWatcher | undefined;
+
+// Add method to load design rules
+private async loadDesignRules(workspaceRoot: string): Promise<string | null> {
+    const possiblePaths = [
+        path.join(workspaceRoot, '.cursor', 'rules', 'design.mdc'),
+        path.join(workspaceRoot, '.windsurfrules'),
+        path.join(workspaceRoot, 'CLAUDE.md')
+    ];
+    
+    for (const rulePath of possiblePaths) {
+        if (fs.existsSync(rulePath)) {
+            try {
+                const content = fs.readFileSync(rulePath, 'utf8');
+                this.outputChannel.appendLine(`✅ Loaded design rules from: ${rulePath}`);
+                
+                // Extract just the rule content (skip frontmatter if present)
+                const cleanContent = this.extractRuleContent(content);
+                return cleanContent;
+            } catch (error) {
+                this.outputChannel.appendLine(`⚠️ Failed to read ${rulePath}: ${error}`);
+            }
+        }
+    }
+    
+    this.outputChannel.appendLine('ℹ️ No design rules file found, using defaults');
+    return null;
+}
+
+private extractRuleContent(content: string): string {
+    // If file has frontmatter (---), extract content after it
+    const frontmatterMatch = content.match(/^---\n[\s\S]*?\n---\n([\s\S]*)$/);
+    if (frontmatterMatch) {
+        return frontmatterMatch[1].trim();
+    }
+    return content.trim();
+}
+```
+
+**B. Update setupWorkingDirectory**
+
+```typescript
+private async setupWorkingDirectory(): Promise<void> {
+    try {
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        
+        if (workspaceRoot) {
+            // ... existing setup code ...
+            
+            // NEW: Load design rules if they exist
+            this.designRules = await this.loadDesignRules(workspaceRoot);
+            
+            // NEW: Set up file watcher for hot-reload
+            this.setupDesignRulesWatcher(workspaceRoot);
+        }
+        
+        this.isInitialized = true;
+    } catch (error) {
+        // ... existing error handling ...
+    }
+}
+```
+
+**C. Add File Watcher for Hot-Reload**
+
+```typescript
+private setupDesignRulesWatcher(workspaceRoot: string) {
+    const designRulePaths = [
+        '.cursor/rules/design.mdc',
+        '.windsurfrules',
+        'CLAUDE.md'
+    ];
+    
+    designRulePaths.forEach(relativePath => {
+        const pattern = new vscode.RelativePattern(workspaceRoot, relativePath);
+        const watcher = vscode.workspace.createFileSystemWatcher(pattern);
+        
+        watcher.onDidChange(async () => {
+            this.outputChannel.appendLine(`🔄 Design rules file changed: ${relativePath}`);
+            this.designRules = await this.loadDesignRules(workspaceRoot);
+            vscode.window.showInformationMessage(
+                '✅ Superdesign design rules reloaded',
+                'View Rules'
+            ).then(action => {
+                if (action === 'View Rules') {
+                    const fullPath = path.join(workspaceRoot, relativePath);
+                    vscode.workspace.openTextDocument(fullPath).then(doc => {
+                        vscode.window.showTextDocument(doc);
+                    });
+                }
+            });
+        });
+        
+        watcher.onDidCreate(async () => {
+            this.outputChannel.appendLine(`📄 Design rules file created: ${relativePath}`);
+            this.designRules = await this.loadDesignRules(workspaceRoot);
+        });
+        
+        watcher.onDidDelete(async () => {
+            this.outputChannel.appendLine(`🗑️ Design rules file deleted: ${relativePath}`);
+            this.designRules = await this.loadDesignRules(workspaceRoot);
+        });
+        
+        this.designRulesWatcher = watcher;
+    });
+}
+```
+
+**D. Update getSystemPrompt to Use Loaded Rules**
+
+```typescript
+private getSystemPrompt(): string {
+    const config = vscode.workspace.getConfiguration('superdesign');
+    const specificModel = config.get<string>('aiModel');
+    const provider = config.get<string>('aiModelProvider', 'anthropic');
+    
+    // Determine the actual model name being used
+    let modelName: string;
+    if (specificModel) {
+        modelName = specificModel;
+    } else {
+        switch (provider) {
+            case 'openai':
+                modelName = 'gpt-4o';
+                break;
+            case 'openrouter':
+                modelName = 'anthropic/claude-3-7-sonnet-20250219';
+                break;
+            case 'claude-code':
+                modelName = 'claude-code';
+                break;
+            case 'anthropic':
+            default:
+                modelName = 'claude-4-sonnet-20250514';
+                break;
+        }
+    }
+    
+    // NEW: Use loaded design rules if available
+    if (this.designRules) {
+        this.outputChannel.appendLine('📖 Using custom design rules from project');
+        
+        // Inject context info at the top of loaded rules
+        return `# Current Context
+- Extension: Super Design (Design Agent for VS Code)
+- AI Model: ${modelName}
+- Working directory: ${this.workingDirectory}
+- Design Rules: Loaded from project (editable via .cursor/rules/design.mdc)
+
+${this.designRules}`;
+    }
+    
+    // FALLBACK: Use hardcoded default rules
+    this.outputChannel.appendLine('📖 Using default design rules (no custom rules found)');
+    return this.getDefaultSystemPrompt(modelName);
+}
+
+private getDefaultSystemPrompt(modelName: string): string {
+    return `# Role
+You are superdesign, a senior frontend designer integrated into VS Code as part of the Super Design extension.
+Your goal is to help user generate amazing design using code
+
+# Current Context
+- Extension: Super Design (Design Agent for VS Code)
+- AI Model: ${modelName}
+- Working directory: ${this.workingDirectory}
+
+# Instructions
+- Use the available tools when needed to help with file operations and code analysis
+- When creating design file:
+  - Build one single html page of just one screen to build a design based on users' feedback/task
+  - You ALWAYS output design files in 'design_iterations' folder as {design_name}_{n}.html (Where n needs to be unique like table_1.html, table_2.html, etc.) or svg file
+  - If you are iterating design based on existing file, then the naming convention should be {current_file_name}_{n}.html, e.g. if we are iterating ui_1.html, then each version should be ui_1_1.html, ui_1_2.html, etc.
+- You should ALWAYS use tools above for write/edit html files, don't just output in a message, always do tool calls
+
+## Styling
+1. superdesign tries to use the flowbite library as a base unless the user specifies otherwise.
+2. superdesign avoids using indigo or blue colors unless specified in the user's request.
+3. superdesign MUST generate responsive designs.
+4. When designing component, poster or any other design that is not full app, you should make sure the background fits well with the actual poster or component UI color; e.g. if component is light then background should be dark, vice versa.
+5. Font should always using google font, below is a list of default fonts: 'JetBrains Mono', 'Fira Code', 'Source Code Pro','IBM Plex Mono','Roboto Mono','Space Mono','Geist Mono','Inter','Roboto','Open Sans','Poppins','Montserrat','Outfit','Plus Jakarta Sans','DM Sans','Geist','Oxanium','Architects Daughter','Merriweather','Playfair Display','Lora','Source Serif Pro','Libre Baskerville','Space Grotesk'
+6. When creating CSS, make sure you include !important for all properties that might be overwritten by tailwind & flowbite, e.g. h1, body, etc.
+7. Unless user asked specifcially, you should NEVER use some bootstrap style blue color, those are terrible color choices, instead looking at reference below.
+8. Example theme patterns:
+// ... rest of existing default rules ...
+`;
+}
+```
+
+**E. Add Command to Edit Design Rules**
+
+```typescript
+// In src/extension.ts
+
+// Command: Edit Superdesign Design Rules
+const editDesignRulesDisposable = vscode.commands.registerCommand(
+    'superdesign.editDesignRules', 
+    async () => {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            vscode.window.showErrorMessage('No workspace folder found');
+            return;
+        }
+        
+        const designRulePath = vscode.Uri.joinPath(
+            workspaceFolder.uri,
+            '.cursor',
+            'rules',
+            'design.mdc'
+        );
+        
+        try {
+            // Open the file, or create if it doesn't exist
+            const doc = await vscode.workspace.openTextDocument(designRulePath);
+            await vscode.window.showTextDocument(doc);
+            
+            vscode.window.showInformationMessage(
+                '💡 Edit design rules here. Changes are applied automatically!',
+                'Learn More'
+            ).then(action => {
+                if (action === 'Learn More') {
+                    vscode.env.openExternal(vscode.Uri.parse(
+                        'https://github.com/yourusername/superdesign#customizing-design-rules'
+                    ));
+                }
+            });
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to open design rules: ${error}`);
+        }
+    }
+);
+
+context.subscriptions.push(editDesignRulesDisposable);
+```
+
+**F. Update package.json**
+
+```json
+{
+  "contributes": {
+    "commands": [
+      {
+        "command": "superdesign.editDesignRules",
+        "title": "Superdesign: Edit Design Rules",
+        "icon": "$(edit)"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "superdesign.editDesignRules"
+        }
+      ]
+    }
+  }
+}
+```
+
+#### Benefits
+- ✅ **User control** - Edit design.mdc to customize Superdesign behavior
+- ✅ **Project-specific rules** - Different projects can have different design systems
+- ✅ **Hot-reload** - Changes take effect immediately without restart
+- ✅ **Real-time feedback** - Output channel shows which rules file is loaded
+- ✅ **Fixes real bug** - Makes existing files actually functional
+- ✅ **HomeFront use case works** - HSL colors and Poppins font respected
+
+#### User Workflow
+1. Initialize Superdesign → creates `.cursor/rules/design.mdc`
+2. Edit design.mdc with project-specific rules (HSL colors, Poppins font, etc.)
+3. File watcher detects change → Superdesign reloads rules
+4. Next design generation uses custom rules
+5. Notification confirms rules are reloaded
+
+#### File Priority
+Superdesign checks files in this order:
+1. `.cursor/rules/design.mdc` (Cursor-specific)
+2. `.windsurfrules` (Windsurf-specific)
+3. `CLAUDE.md` (Claude Code/Cline-specific)
+
+Uses the first file found.
+
+#### Testing Checklist
+- [ ] Superdesign loads design.mdc on initialization
+- [ ] Editing design.mdc triggers reload
+- [ ] Custom colors/fonts are used in generated designs
+- [ ] Fallback to defaults when no rules file exists
+- [ ] File watcher works for all three file types
+- [ ] Output channel shows which rules file is active
+- [ ] "Edit Design Rules" command opens correct file
 
 ---
 
@@ -1362,6 +2271,9 @@ export class SuperdesignMCPClient {
 
 | Feature | Priority | Complexity | Impact | Implement First? |
 |---------|----------|------------|--------|------------------|
+| **Native Browser Preview** | **HIGHEST** | Low-Medium | **Critical** | ✅ **YES - Immediate** |
+| **Design Lifecycle Management** | **HIGH** | Medium | **Critical** | ✅ **YES - Immediate** |
+| **Design Rules File Integration** | **CRITICAL** | Low | **Critical** | ✅ **YES - DONE** |
 | Project Context Discovery | High | Medium | High | ✅ Yes - Foundation |
 | Smart System Prompt | High | Medium | High | ✅ Yes - Core |
 | Better Integration Commands | High | Low-Medium | Medium | ✅ Yes - Quick wins |
@@ -1380,14 +2292,41 @@ export class SuperdesignMCPClient {
 
 ## Development Roadmap
 
-### Sprint 1: Foundation (Weeks 1-2)
+### Sprint 0: Critical UX Fixes (Week 1) - **START HERE**
+- [x] **Design Rules File Integration** ✅ **COMPLETED**
+  - [x] Add design rules loader (reads .cursor/rules/design.mdc, .windsurfrules, CLAUDE.md)
+  - [x] Extract frontmatter from MDC files
+  - [x] Use loaded rules in system prompt instead of hardcoded defaults
+  - [x] Add file watcher for hot-reload when rules change
+  - [x] Add logging to show which rules file is active
+- [ ] **Native Browser Preview Integration**
+  - [ ] Add "Open in Browser" button to design frame dropdown
+  - [ ] Implement Simple Browser command handler
+  - [ ] Add file watcher for auto-refresh
+  - [ ] Update Canvas empty state messaging
+- [ ] **Design Lifecycle Management (Phase 1)**
+  - [ ] Create design metadata system (metadata.json)
+  - [ ] Add status buttons to design frames (Approve, Archive, Delete)
+  - [ ] Implement status filter in Canvas toolbar
+  - [ ] Add basic tag system
+  - [ ] Create archive folder structure
+  - [ ] Add delete confirmation dialogs
+
+**Deliverable:** User-controlled design rules + better preview experience + basic design management
+
+### Sprint 1: Foundation (Weeks 2-3)
+- [ ] Complete Design Lifecycle Management (Phase 2)
+  - [ ] Add notes/modal UI
+  - [ ] Implement search functionality
+  - [ ] Add bulk operations (archive old, delete archived)
+  - [ ] Add export tracking
 - [ ] Implement ProjectAnalyzer utility
 - [ ] Create design token extractors (Tailwind, CSS vars)
 - [ ] Build dynamic PromptBuilder
 - [ ] Add metadata storage (.superdesign/config.json, context.json)
 - [ ] Test with 3-5 different project types
 
-**Deliverable:** Superdesign understands project context
+**Deliverable:** Complete design management + Superdesign understands project context
 
 ---
 
@@ -1487,6 +2426,6 @@ export class SuperdesignMCPClient {
 ---
 
 **Document Owner:** Superdesign Development Team  
-**Last Updated:** December 15, 2024  
-**Next Review:** After Sprint 1 completion
+**Last Updated:** January 2025  
+**Next Review:** After Sprint 0 completion
 
