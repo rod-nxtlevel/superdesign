@@ -7,7 +7,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import { AgentService, ExecutionContext } from '../types/agent';
-import { ClaudeCodeService } from './claudeCodeService';
+import { LLMService } from './llmService';
 import { createReadTool } from '../tools/read-tool';
 import { createWriteTool } from '../tools/write-tool';
 import { createBashTool } from '../tools/bash-tool';
@@ -22,14 +22,14 @@ export class CustomAgentService implements AgentService {
     private workingDirectory: string = '';
     private outputChannel: vscode.OutputChannel;
     private isInitialized = false;
-    private claudeCodeService: ClaudeCodeService;
+    private llmService: LLMService;
     private designRules: string | null = null;
     private designRulesWatcher: vscode.FileSystemWatcher | undefined;
 
     constructor(outputChannel: vscode.OutputChannel) {
         this.outputChannel = outputChannel;
         this.outputChannel.appendLine('CustomAgentService constructor called');
-        this.claudeCodeService = new ClaudeCodeService(outputChannel);
+        this.llmService = new LLMService(outputChannel);
         this.setupWorkingDirectory();
     }
 
@@ -702,16 +702,16 @@ I've created the html design, please reveiw and let me know if you need any chan
             await this.setupWorkingDirectory();
         }
 
-        // Check if claude-code is selected and use ClaudeCodeService instead
+        // Check if claude-code is selected and use LLMService instead
         const config = vscode.workspace.getConfiguration('superdesign');
         const aiModelProvider = config.get<string>('aiModelProvider', 'anthropic');
         const llmProvider = config.get<string>('llmProvider', 'claude-api');
         
-        // If either setting is set to claude-code, use ClaudeCodeService
+        // If either setting is set to claude-code, use LLMService
         if (aiModelProvider === 'claude-code' || llmProvider === 'claude-code') {
-            this.outputChannel.appendLine('Using ClaudeCodeService for claude-code provider');
+            this.outputChannel.appendLine('Using LLMService for claude-code provider');
             
-            // Convert conversation history to prompt for ClaudeCodeService
+            // Convert conversation history to prompt for LLMService
             let queryPrompt = '';
             if (conversationHistory && conversationHistory.length > 0) {
                 queryPrompt = conversationHistory.map(msg => {
@@ -724,8 +724,8 @@ I've created the html design, please reveiw and let me know if you need any chan
                 throw new Error('Either prompt or conversationHistory must be provided');
             }
             
-            // Use ClaudeCodeService with streaming callback
-            const claudeMessages = await this.claudeCodeService.query(
+            // Use LLMService with streaming callback
+            const claudeMessages = await this.llmService.query(
                 queryPrompt,
                 { streaming: true },
                 abortController,

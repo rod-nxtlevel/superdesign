@@ -3,7 +3,7 @@ import { Logger } from './logger';
 import { LLMProviderFactory } from '../providers/llmProviderFactory';
 import { LLMProvider, LLMProviderOptions, LLMMessage, LLMStreamCallback } from '../providers/llmProvider';
 
-export class ClaudeCodeService {
+export class LLMService {
     private providerFactory: LLMProviderFactory;
     private outputChannel: vscode.OutputChannel;
 
@@ -116,4 +116,5 @@ export class ClaudeCodeService {
 }
 
 // Legacy export for backward compatibility
-export type { LLMMessage, LLMProviderOptions, LLMStreamCallback }; 
+export type { LLMMessage, LLMProviderOptions, LLMStreamCallback };
+

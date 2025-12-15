@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ClaudeCodeService, LLMMessage } from './claudeCodeService';
+import { LLMService, LLMMessage } from './llmService';
 import { AgentService } from '../types/agent';
 import { CoreMessage } from 'ai';
 import { Logger } from './logger';
