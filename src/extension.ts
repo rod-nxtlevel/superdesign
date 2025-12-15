@@ -1278,6 +1278,10 @@ export function activate(context: vscode.ExtensionContext) {
     await configureOpenAIUrl();
   });
 
+  const configureAnthropicUrlDisposable = vscode.commands.registerCommand('superdesign.configureAnthropicUrl', async () => {
+    await configureAnthropicUrl();
+  });
+
 	// Create the chat sidebar provider
 	const sidebarProvider = new ChatSidebarProvider(context.extensionUri, customAgent, Logger.getOutputChannel());
 	
@@ -1396,6 +1400,7 @@ export function activate(context: vscode.ExtensionContext) {
 		configureOpenAIApiKeyDisposable,
 		configureOpenRouterApiKeyDisposable,
     configureOpenAIUrlDisposable,
+		configureAnthropicUrlDisposable,
 		sidebarDisposable,
 		showSidebarDisposable,
 		openCanvasDisposable,
@@ -1577,6 +1582,45 @@ async function configureOpenAIUrl() {
       vscode.window.showInformationMessage('Url unchanged (already configured)');
     } else {
       vscode.window.showWarningMessage('No Url was set');
+    }
+  }
+}
+
+// Function to configure Anthropic url
+async function configureAnthropicUrl() {
+  const currentUrl = vscode.workspace.getConfiguration('superdesign').get<string>('anthropicUrl');
+
+  const input = await vscode.window.showInputBox({
+    title: 'Configure Anthropic API URL',
+    prompt: 'Enter your Anthropic API base URL',
+    value: currentUrl ?? '',
+    password: false,
+    placeHolder: 'https://api.anthropic.com/v1',
+    validateInput: (value) => {
+      if (!value || value.trim().length === 0) {
+        return 'URL cannot be empty';
+      }
+      if (!value.startsWith('http')) {
+        return 'URL should start with "http"';
+      }
+      return null;
+    }
+  });
+
+  if (input !== undefined) {
+    if (input !== '') {
+      try {
+        await vscode.workspace
+          .getConfiguration('superdesign')
+          .update('anthropicUrl', input.trim(), vscode.ConfigurationTarget.Global);
+        vscode.window.showInformationMessage('✅ Anthropic API URL configured successfully!');
+      } catch (error) {
+        vscode.window.showErrorMessage(`Failed to save URL: ${error}`);
+      }
+    } else if (currentUrl) {
+      vscode.window.showInformationMessage('URL unchanged (already configured)');
+    } else {
+      vscode.window.showWarningMessage('No URL was set');
     }
   }
 }

@@ -129,12 +129,10 @@ export class CustomAgentService implements AgentService {
                 
                 this.outputChannel.appendLine(`Anthropic API key found: ${anthropicKey.substring(0, 12)}...`);
                 
+                const anthropicUrl = config.get<string>('anthropicUrl');
                 const anthropic = createAnthropic({
                     apiKey: anthropicKey,
-                    baseURL: "https://anthropic.helicone.ai/v1",
-                    headers: {
-                        "Helicone-Auth": `Bearer sk-helicone-utidjzi-eprey7i-tvjl25y-yl7mosi`,
-                    }
+                    baseURL: anthropicUrl ?? "https://api.anthropic.com/v1",
                 });
                 
                 // Use specific model if available, otherwise default to claude-4-sonnet
@@ -158,10 +156,7 @@ export class CustomAgentService implements AgentService {
                 
                 const openai = createOpenAI({
                     apiKey: openaiKey,
-                    baseURL: openaiUrl ?? "https://oai.helicone.ai/v1",
-                    headers: {
-                        "Helicone-Auth": `Bearer sk-helicone-utidjzi-eprey7i-tvjl25y-yl7mosi`,
-                    }
+                    baseURL: openaiUrl ?? "https://api.openai.com/v1",
                 });
                 
                 // Use specific model if available, otherwise default to gpt-4o

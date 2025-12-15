@@ -195,6 +195,11 @@
           "description": "OpenAI url for custom agent",
           "scope": "application"
         },
+        "superdesign.anthropicUrl": {
+          "type": "string",
+          "description": "Anthropic API base URL (defaults to https://api.anthropic.com/v1)",
+          "scope": "application"
+        },
         "superdesign.openrouterApiKey": {
           "type": "string",
           "description": "OpenRouter API key for custom agent",
