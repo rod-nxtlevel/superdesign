@@ -213,7 +213,7 @@ export class CustomAgentService implements AgentService {
                     throw new Error('Anthropic API key not configured. Please run "Configure Anthropic API Key" command.');
                 }
                 
-                this.outputChannel.appendLine(`Anthropic API key found: ${anthropicKey.substring(0, 12)}...`);
+                this.outputChannel.appendLine(`Anthropic API key: ✓ configured`);
                 
                 const anthropicUrl = config.get<string>('anthropicUrl')?.trim() || "https://api.anthropic.com/v1";
                 const anthropic = createAnthropic({
@@ -238,7 +238,7 @@ export class CustomAgentService implements AgentService {
                     throw new Error('OpenAI API key not configured. Please run "Configure OpenAI API Key" command.');
                 }
                 
-                this.outputChannel.appendLine(`OpenAI API key found: ${openaiKey.substring(0, 7)}...`);
+                this.outputChannel.appendLine(`OpenAI API key: ✓ configured`);
                 
                 const openai = createOpenAI({
                     apiKey: openaiKey,

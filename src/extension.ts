@@ -4,7 +4,13 @@ import * as vscode from 'vscode';
 import { CustomAgentService } from './services/customAgentService';
 import { ChatSidebarProvider } from './providers/chatSidebarProvider';
 import { Logger, LogLevel } from './services/logger';
+import { SuperdesignDevServer } from './services/devServer';
+import { DesignManager } from './services/designManager';
 import * as path from 'path';
+
+// Module-level instances
+let devServer: SuperdesignDevServer | undefined;
+let designManager: DesignManager | undefined;
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -268,7 +274,7 @@ Your goal is to help user generate amazing design using code
 - Use the available tools when needed to help with file operations and code analysis
 - When creating design file:
   - Build one single html page of just one screen to build a design based on users' feedback/task
-  - You ALWAYS output design files in '.superdesign/design_iterations' folder as {design_name}_{n}.html (Where n needs to be unique like table_1.html, table_2.html, etc.) or svg file
+  - You ALWAYS output design files in 'design_iterations' folder as {design_name}_{n}.html (Where n needs to be unique like table_1.html, table_2.html, etc.) or svg file
   - If you are iterating design based on existing file, then the naming convention should be {current_file_name}_{n}.html, e.g. if we are iterating ui_1.html, then each version should be ui_1_1.html, ui_1_2.html, etc.
 - You should ALWAYS use tools above for write/edit html files, don't just output in a message, always do tool calls
 
@@ -514,7 +520,7 @@ They looks good
 <assistant>
 Great, next let's design the color & font theme,
 
-generateTheme(theme_name='Vercel techy style', reasoning_reference='Reference classic shadcn style that has ...', cssFilePath='.superdesign/design_iterations/theme_1.css', cssSheet=':root {
+generateTheme(theme_name='Vercel techy style', reasoning_reference='Reference classic shadcn style that has ...', cssFilePath='design_iterations/theme_1.css', cssSheet=':root {
   --background: oklch(1.0000 0 0);
   --foreground: oklch(0.1448 0 0);
   --card: oklch(1.0000 0 0);
@@ -616,8 +622,8 @@ This looks great, lets do it
 <assistant>
 Great, I will generate the html file for each UI component and then combine them together to form a single html file
 
-write(file_path='.superdesign/design_iterations/chat_ui.css', content='...')
-write(file_path='.superdesign/design_iterations/chat_ui.html', content='...')
+write(file_path='design_iterations/chat_ui.css', content='...')
+write(file_path='design_iterations/chat_ui.html', content='...')
 
 I've created the html design, please reveiw and let me know if you need any changes
 
@@ -626,7 +632,7 @@ I've created the html design, please reveiw and let me know if you need any chan
 IMPORTANT RULES:
 1. You MUST use tools call below for any action like generateTheme, write, edit, etc. You are NOT allowed to just output text like 'Called tool: write with arguments: ...' or <tool-call>...</tool-call>; MUST USE TOOL CALL (This is very important!!)
 2. You MUST confirm the layout, and then theme style, and then animation
-3. You MUST use .superdesign/design_iterations folder to save the design files, do NOT save to other folders
+3. You MUST use design_iterations folder to save the design files, do NOT save to other folders
 4. You MUST create follow the workflow above
 
 # Available Tools
@@ -1251,6 +1257,21 @@ export function activate(context: vscode.ExtensionContext) {
 	Logger.info('Superdesign extension is now active!');
 	// Note: Users can manually open output via View → Output → Select "Superdesign" if needed
 
+	// Initialize dev server and design manager (start on first use)
+	const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+	if (workspaceRoot) {
+		devServer = new SuperdesignDevServer(workspaceRoot);
+		Logger.info('Dev server initialized (will start on first browser preview request)');
+		
+		designManager = new DesignManager(workspaceRoot);
+		Logger.info('Design manager initialized');
+		
+		// Sync metadata with existing design files
+		designManager.syncWithFileSystem().catch(error => {
+			Logger.error(`Failed to sync design metadata: ${error}`);
+		});
+	}
+
 	// Initialize Custom Agent service
 	Logger.info('Creating CustomAgentService...');
 	const customAgent = new CustomAgentService(Logger.getOutputChannel());
@@ -1670,7 +1691,18 @@ class SuperdesignCanvasPanel {
 
 		this._update();
 		this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
-		this._setupFileWatcher();
+		
+		// Check if new canvas is enabled
+		const config = vscode.workspace.getConfiguration('superdesign');
+		const useNewCanvas = config.get<boolean>('useNewCanvas', false);
+		
+		if (useNewCanvas) {
+			// Use new canvas message handler
+			this._setupNewCanvasHandler();
+		} else {
+			// Use legacy file watcher
+			this._setupFileWatcher();
+		}
 
 		// Handle messages from the webview
 		this._panel.webview.onDidReceiveMessage(
@@ -1689,18 +1721,74 @@ class SuperdesignCanvasPanel {
 							data: message.data
 						});
 						break;
-					case 'setChatPrompt':
-						// Forward prompt to chat sidebar
-						this._sidebarProvider.sendMessage({
-							command: 'setChatPrompt',
-							data: message.data
-						});
-						break;
-				}
-			},
-			null,
-			this._disposables
+				case 'setChatPrompt':
+					// Forward prompt to chat sidebar
+					this._sidebarProvider.sendMessage({
+						command: 'setChatPrompt',
+						data: message.data
+					});
+					break;
+				case 'openInBrowser':
+					Logger.info(`Received openInBrowser message for file: ${message.fileName}`);
+					this._handleOpenInBrowser(message.fileName);
+					break;
+				case 'updateDesignStatus':
+					this._handleUpdateDesignStatus(message.fileName, message.status);
+					break;
+				case 'addDesignTag':
+					this._handleAddDesignTag(message.fileName, message.tag);
+					break;
+				case 'removeDesignTag':
+					this._handleRemoveDesignTag(message.fileName, message.tag);
+					break;
+				case 'updateDesignNotes':
+					this._handleUpdateDesignNotes(message.fileName, message.notes);
+					break;
+				case 'deleteDesign':
+					this._handleDeleteDesign(message.fileName);
+					break;
+				case 'archiveDesign':
+					this._handleArchiveDesign(message.fileName);
+					break;
+				case 'getDesignMetadata':
+					this._handleGetDesignMetadata(message.fileName);
+					break;
+				// New canvas messages
+				case 'canvas:ready':
+				case 'design:setPrimary':
+				case 'design:action':
+				case 'chat:setContext':
+					if (useNewCanvas && this._canvasMessageHandler) {
+						this._canvasMessageHandler.handleMessage(message);
+					}
+					break;
+			}
+		},
+		null,
+		this._disposables
+	);
+	}
+	
+	private _canvasMessageHandler: any; // Will be properly typed when imported
+	
+	private _setupNewCanvasHandler() {
+		const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+		if (!workspaceFolder) {
+			return;
+		}
+		
+		// Import and create CanvasMessageHandler
+		const { CanvasMessageHandler } = require('./services/canvasMessageHandler');
+		const { DesignManager } = require('./services/designManager');
+		
+		const designManager = new DesignManager(workspaceFolder.uri.fsPath);
+		this._canvasMessageHandler = new CanvasMessageHandler(
+			this._panel.webview,
+			workspaceFolder.uri.fsPath,
+			designManager
 		);
+		
+		Logger.info('New canvas message handler initialized');
 	}
 
 	public dispose() {
@@ -1801,6 +1889,10 @@ class SuperdesignCanvasPanel {
 		Logger.debug(`Canvas Panel - Generated logo URIs: ${JSON.stringify(logoUris)}`);
 
 		const nonce = getNonce();
+		
+		// Check if new canvas is enabled
+		const config = vscode.workspace.getConfiguration('superdesign');
+		const useNewCanvas = config.get<boolean>('useNewCanvas', false);
 
 		return `<!DOCTYPE html>
 			<html lang="en">
@@ -1811,16 +1903,18 @@ class SuperdesignCanvasPanel {
 				<title>Superdesign Canvas</title>
 			</head>
 			<body>
-				<div id="root" data-view="canvas" data-nonce="${nonce}"></div>
+				<div id="root" data-view="canvas" data-nonce="${nonce}" data-new-canvas="${useNewCanvas}"></div>
 				<script nonce="${nonce}">
 					// Debug: Check if context data is being generated
 					console.log('Canvas Panel - About to set webview context. Logo URIs:', ${JSON.stringify(logoUris)});
+					console.log('Canvas Panel - Using new canvas:', ${useNewCanvas});
 					
 					// Initialize context for React app
 					window.__WEBVIEW_CONTEXT__ = {
 						layout: 'panel',
 						extensionUri: '${this._extensionUri.toString()}',
-						logoUris: ${JSON.stringify(logoUris)}
+						logoUris: ${JSON.stringify(logoUris)},
+						useNewCanvas: ${useNewCanvas}
 					};
 					
 					// Debug logging in webview
@@ -1961,6 +2055,213 @@ class SuperdesignCanvasPanel {
 		
 		return modifiedContent;
 	}
+
+	/**
+	 * Handle opening a design file in the browser via dev server
+	 */
+	private async _handleOpenInBrowser(fileName: string) {
+		try {
+			if (!devServer) {
+				throw new Error('Dev server not initialized. No workspace folder found.');
+			}
+
+			// Start dev server if not running
+			if (!devServer.isServerRunning()) {
+				Logger.info('Starting dev server for browser preview...');
+				const port = await devServer.start();
+				Logger.info(`Dev server started on port ${port}`);
+			}
+
+			// Get HTTP URL for the design file
+			const url = devServer.getDesignUrl(fileName);
+			Logger.info(`Opening design in browser: ${url}`);
+
+			// Try to open in Simple Browser first (built-in VS Code browser)
+			try {
+				await vscode.commands.executeCommand(
+					'simpleBrowser.show',
+					url
+				);
+				Logger.info('Opened in Simple Browser');
+			} catch (simpleBrowserError) {
+				// Fallback to system browser if Simple Browser unavailable
+				Logger.warn('Simple Browser unavailable, opening in system browser');
+				await vscode.env.openExternal(vscode.Uri.parse(url));
+			}
+
+			// Show notification with URL
+			const action = await vscode.window.showInformationMessage(
+				`Design opened at ${url}`,
+				'Copy URL'
+			);
+
+			if (action === 'Copy URL') {
+				await vscode.env.clipboard.writeText(url);
+				vscode.window.showInformationMessage('URL copied to clipboard');
+			}
+
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			Logger.error(`Failed to open design in browser: ${errorMessage}`);
+			vscode.window.showErrorMessage(`Failed to open design in browser: ${errorMessage}`);
+		}
+	}
+
+	/**
+	 * Handle updating design status
+	 */
+	private async _handleUpdateDesignStatus(fileName: string, status: string) {
+		try {
+			if (!designManager) {
+				throw new Error('Design manager not initialized');
+			}
+
+			await designManager.updateStatus(fileName, status as any);
+			
+			// Reload designs to reflect changes
+			await this._loadDesignFiles();
+			
+			vscode.window.showInformationMessage(`Design status updated: ${status}`);
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			Logger.error(`Failed to update design status: ${errorMessage}`);
+			vscode.window.showErrorMessage(`Failed to update status: ${errorMessage}`);
+		}
+	}
+
+	/**
+	 * Handle adding tag to design
+	 */
+	private async _handleAddDesignTag(fileName: string, tag: string) {
+		try {
+			if (!designManager) {
+				throw new Error('Design manager not initialized');
+			}
+
+			await designManager.addTag(fileName, tag);
+			Logger.info(`Added tag '${tag}' to ${fileName}`);
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			Logger.error(`Failed to add tag: ${errorMessage}`);
+		}
+	}
+
+	/**
+	 * Handle removing tag from design
+	 */
+	private async _handleRemoveDesignTag(fileName: string, tag: string) {
+		try {
+			if (!designManager) {
+				throw new Error('Design manager not initialized');
+			}
+
+			await designManager.removeTag(fileName, tag);
+			Logger.info(`Removed tag '${tag}' from ${fileName}`);
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			Logger.error(`Failed to remove tag: ${errorMessage}`);
+		}
+	}
+
+	/**
+	 * Handle updating design notes
+	 */
+	private async _handleUpdateDesignNotes(fileName: string, notes: string) {
+		try {
+			if (!designManager) {
+				throw new Error('Design manager not initialized');
+			}
+
+			await designManager.updateNotes(fileName, notes);
+			Logger.info(`Updated notes for ${fileName}`);
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			Logger.error(`Failed to update notes: ${errorMessage}`);
+		}
+	}
+
+	/**
+	 * Handle deleting design
+	 */
+	private async _handleDeleteDesign(fileName: string) {
+		try {
+			if (!designManager) {
+				throw new Error('Design manager not initialized');
+			}
+
+			// Confirm deletion
+			const confirm = await vscode.window.showWarningMessage(
+				`Permanently delete ${fileName}?`,
+				{ modal: true },
+				'Delete'
+			);
+
+			if (confirm === 'Delete') {
+				await designManager.deleteDesign(fileName, false);
+				
+				// Reload designs
+				await this._loadDesignFiles();
+				
+				vscode.window.showInformationMessage(`Deleted: ${fileName}`);
+			}
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			Logger.error(`Failed to delete design: ${errorMessage}`);
+			vscode.window.showErrorMessage(`Failed to delete: ${errorMessage}`);
+		}
+	}
+
+	/**
+	 * Handle archiving design
+	 */
+	private async _handleArchiveDesign(fileName: string) {
+		try {
+			if (!designManager) {
+				throw new Error('Design manager not initialized');
+			}
+
+			await designManager.archiveDesign(fileName);
+			
+			// Reload designs
+			await this._loadDesignFiles();
+			
+			vscode.window.showInformationMessage(`Archived: ${fileName}`);
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			Logger.error(`Failed to archive design: ${errorMessage}`);
+			vscode.window.showErrorMessage(`Failed to archive: ${errorMessage}`);
+		}
+	}
+
+	/**
+	 * Handle getting design metadata
+	 */
+	private async _handleGetDesignMetadata(fileName?: string) {
+		try {
+			if (!designManager) {
+				throw new Error('Design manager not initialized');
+			}
+
+			if (fileName) {
+				// Get metadata for specific file
+				const metadata = await designManager.getDesignMetadata(fileName);
+				this._panel.webview.postMessage({
+					command: 'designMetadata',
+					data: { fileName, metadata }
+				});
+			} else {
+				// Get all metadata
+				const store = await designManager.loadMetadata();
+				this._panel.webview.postMessage({
+					command: 'allDesignMetadata',
+					data: store
+				});
+			}
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			Logger.error(`Failed to get design metadata: ${errorMessage}`);
+		}
+	}
 }
 
 function getNonce() {
@@ -1974,6 +2275,11 @@ function getNonce() {
 
 // This method is called when your extension is deactivated
 export function deactivate() {
+	// Stop dev server if running
+	if (devServer) {
+		devServer.stop();
+		devServer = undefined;
+	}
 	Logger.dispose();
 }
 

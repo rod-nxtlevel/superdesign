@@ -2,12 +2,18 @@
 
 export interface DesignFile {
     name: string;
-    path: string;
-    content: string;
-    size: number;
-    modified: Date;
-    fileType: 'html' | 'svg';  // File type for proper rendering
-    // New hierarchy properties
+    path?: string; // Legacy property
+    filePath?: string; // New property for webview URI
+    content?: string;
+    size?: number;
+    modified?: Date;
+    fileType?: 'html' | 'svg';  // File type for proper rendering
+    // New canvas properties
+    viewport?: 'mobile' | 'tablet' | 'desktop';
+    status?: 'draft' | 'review' | 'approved' | 'archived';
+    timestamp?: number;
+    originalPrompt?: string;
+    // Hierarchy properties
     version?: string;          // e.g., "v1", "v2", "v3"
     parentDesign?: string;     // Reference to parent design file name
     children?: string[];       // Array of child design file names
@@ -63,6 +69,50 @@ export interface SetChatPromptMessage extends ExtensionMessage {
     };
 }
 
+export interface OpenInBrowserMessage extends ExtensionMessage {
+    command: 'openInBrowser';
+    fileName: string;
+}
+
+export interface UpdateDesignStatusMessage extends ExtensionMessage {
+    command: 'updateDesignStatus';
+    fileName: string;
+    status: 'draft' | 'review' | 'approved' | 'archived' | 'exported';
+}
+
+export interface AddDesignTagMessage extends ExtensionMessage {
+    command: 'addDesignTag';
+    fileName: string;
+    tag: string;
+}
+
+export interface RemoveDesignTagMessage extends ExtensionMessage {
+    command: 'removeDesignTag';
+    fileName: string;
+    tag: string;
+}
+
+export interface UpdateDesignNotesMessage extends ExtensionMessage {
+    command: 'updateDesignNotes';
+    fileName: string;
+    notes: string;
+}
+
+export interface DeleteDesignMessage extends ExtensionMessage {
+    command: 'deleteDesign';
+    fileName: string;
+}
+
+export interface ArchiveDesignMessage extends ExtensionMessage {
+    command: 'archiveDesign';
+    fileName: string;
+}
+
+export interface GetDesignMetadataMessage extends ExtensionMessage {
+    command: 'getDesignMetadata';
+    fileName?: string; // If not provided, get all metadata
+}
+
 export interface ErrorMessage extends ExtensionMessage {
     command: 'error';
     data: {
@@ -82,7 +132,15 @@ export type WebviewMessage =
     | LoadDesignFilesMessage 
     | SelectFrameMessage
     | SetContextFromCanvasMessage
-    | SetChatPromptMessage;
+    | SetChatPromptMessage
+    | OpenInBrowserMessage
+    | UpdateDesignStatusMessage
+    | AddDesignTagMessage
+    | RemoveDesignTagMessage
+    | UpdateDesignNotesMessage
+    | DeleteDesignMessage
+    | ArchiveDesignMessage
+    | GetDesignMetadataMessage;
 
 export type ExtensionToWebviewMessage = 
     | DesignFilesLoadedMessage 

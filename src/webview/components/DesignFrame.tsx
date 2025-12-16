@@ -50,6 +50,7 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
     const [showCopyDropdown, setShowCopyDropdown] = React.useState(false);
     const [copyButtonState, setCopyButtonState] = React.useState<{ text: string; isSuccess: boolean }>({ text: 'Copy prompt', isSuccess: false });
     const [copyPathButtonState, setCopyPathButtonState] = React.useState<{ text: string; isSuccess: boolean }>({ text: 'Copy design path', isSuccess: false });
+    const [designStatus, setDesignStatus] = React.useState<'draft' | 'review' | 'approved' | 'archived' | 'exported'>('draft');
 
     const handleClick = () => {
         onSelect(file.name);
@@ -229,6 +230,63 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
         
         if (onSendToChat) {
             onSendToChat(file.name, 'Please create a few variations with this feedback: ');
+        }
+    };
+
+    const handleOpenInBrowser = (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // Post message to extension to open in browser
+        const vscode = (window as any).vscode;
+        if (vscode) {
+            const message: WebviewMessage = {
+                command: 'openInBrowser',
+                fileName: file.name
+            };
+            vscode.postMessage(message);
+            setShowCopyDropdown(false);
+        }
+    };
+
+    const handleSetStatus = (status: 'draft' | 'review' | 'approved' | 'archived' | 'exported') => {
+        const vscode = (window as any).vscode;
+        if (vscode) {
+            const message: WebviewMessage = {
+                command: 'updateDesignStatus',
+                fileName: file.name,
+                status
+            };
+            vscode.postMessage(message);
+            setDesignStatus(status);
+        }
+    };
+
+    const handleArchive = (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const vscode = (window as any).vscode;
+        if (vscode) {
+            const message: WebviewMessage = {
+                command: 'archiveDesign',
+                fileName: file.name
+            };
+            vscode.postMessage(message);
+        }
+    };
+
+    const handleDelete = (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const vscode = (window as any).vscode;
+        if (vscode) {
+            const message: WebviewMessage = {
+                command: 'deleteDesign',
+                fileName: file.name
+            };
+            vscode.postMessage(message);
         }
     };
 
@@ -485,12 +543,14 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
                         srcDoc={modifiedContent}
                         title={`${file.name} - ${getViewportLabel(viewport)}`}
                         style={{
-                            width: viewportDimensions ? `${viewportDimensions.width}px` : '100%',
-                            height: viewportDimensions ? `${viewportDimensions.height}px` : '100%',
+                            width: '100%',
+                            height: '100%',
                             border: 'none',
                             background: 'white',
                             borderRadius: '0 0 6px 6px',
-                            pointerEvents: (isSelected && !dragPreventOverlay && !isDragging) ? 'auto' : 'none'
+                            pointerEvents: (isSelected && !dragPreventOverlay && !isDragging) ? 'auto' : 'none',
+                            transform: 'scale(1)', // Force hardware acceleration
+                            transformOrigin: 'top left'
                         }}
                         referrerPolicy="no-referrer"
                         loading="lazy"
@@ -587,7 +647,32 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
             onMouseDown={handleMouseDown}
         >
             <div className="frame-header">
-                <span className="frame-title">{file.name}</span>
+                <span className="frame-title">
+                    {file.name}
+                    {designStatus !== 'draft' && (
+                        <span 
+                            className="status-badge"
+                            style={{
+                                marginLeft: '8px',
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                fontSize: '10px',
+                                fontWeight: 'bold',
+                                textTransform: 'uppercase',
+                                backgroundColor: 
+                                    designStatus === 'approved' ? 'var(--vscode-charts-green)' :
+                                    designStatus === 'review' ? 'var(--vscode-charts-yellow)' :
+                                    designStatus === 'archived' ? 'var(--vscode-charts-gray)' :
+                                    designStatus === 'exported' ? 'var(--vscode-charts-blue)' :
+                                    'transparent',
+                                color: 'var(--vscode-button-foreground)',
+                                opacity: 0.9
+                            }}
+                        >
+                            {designStatus}
+                        </span>
+                    )}
+                </span>
                 
                 {/* Viewport Controls */}
                 {onViewportChange && !useGlobalViewport && (
@@ -811,6 +896,94 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
                                         onLoad={() => console.log('Bolt logo loaded successfully')}
                                     />
                                     <span>Bolt</span>
+                                </button>
+                                
+                                {/* Separator */}
+                                <div style={{ borderTop: '1px solid var(--vscode-dropdown-border)', margin: '4px 0' }} />
+                                
+                                {/* Open in Browser */}
+                                <button
+                                    className="copy-dropdown-item"
+                                    onClick={handleOpenInBrowser}
+                                    title="Open in browser (full viewport, DevTools, external CDN resources)"
+                                >
+                                    <svg 
+                                        className="platform-logo" 
+                                        viewBox="0 0 24 24" 
+                                        fill="currentColor"
+                                        style={{ width: '20px', height: '20px' }}
+                                    >
+                                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+                                    </svg>
+                                    <span>Open in Browser</span>
+                                </button>
+
+                                {/* Lifecycle Management Section */}
+                                <div style={{ borderTop: '1px solid var(--vscode-dropdown-border)', margin: '4px 0' }} />
+                                
+                                {/* Approve */}
+                                <button
+                                    className="copy-dropdown-item"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleSetStatus('approved');
+                                        setShowCopyDropdown(false);
+                                    }}
+                                    title="Mark as approved (final design)"
+                                    style={{ color: designStatus === 'approved' ? 'var(--vscode-charts-green)' : 'inherit' }}
+                                >
+                                    <svg 
+                                        className="platform-logo" 
+                                        viewBox="0 0 24 24" 
+                                        fill="currentColor"
+                                        style={{ width: '20px', height: '20px' }}
+                                    >
+                                        <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/>
+                                    </svg>
+                                    <span>Approve</span>
+                                </button>
+                                
+                                {/* Archive */}
+                                <button
+                                    className="copy-dropdown-item"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleArchive(e);
+                                        setShowCopyDropdown(false);
+                                    }}
+                                    title="Archive (hide from main view)"
+                                >
+                                    <svg 
+                                        className="platform-logo" 
+                                        viewBox="0 0 24 24" 
+                                        fill="currentColor"
+                                        style={{ width: '20px', height: '20px' }}
+                                    >
+                                        <path d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 17.5L6.5 12H10v-2h4v2h3.5L12 17.5zM5.12 5l.81-1h12l.94 1H5.12z"/>
+                                    </svg>
+                                    <span>Archive</span>
+                                </button>
+                                
+                                {/* Delete */}
+                                <button
+                                    className="copy-dropdown-item"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDelete(e);
+                                        setShowCopyDropdown(false);
+                                    }}
+                                    title="Delete permanently"
+                                    style={{ color: 'var(--vscode-errorForeground)' }}
+                                >
+                                    <svg 
+                                        className="platform-logo" 
+                                        viewBox="0 0 24 24" 
+                                        fill="currentColor"
+                                        style={{ width: '20px', height: '20px' }}
+                                    >
+                                        <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                                    </svg>
+                                    <span>Delete</span>
                                 </button>
                             </div>
                         )}

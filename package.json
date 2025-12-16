@@ -37,8 +37,7 @@
     "automation"
   ],
   "activationEvents": [
-    "onCommand:superdesign.helloWorld",
-    "onView:superdesign.chatView"
+    "onStartupFinished"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -221,6 +220,12 @@
           "type": "string",
           "description": "Specific AI model to use (e.g., gpt-4o, claude-3-5-sonnet-20241022)",
           "scope": "application"
+        },
+        "superdesign.useNewCanvas": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable the new Gallery → Studio canvas experience (experimental)",
+          "scope": "application"
         }
       }
     }
@@ -247,6 +252,7 @@
     "test:tools": "tsc --project tsconfig.test.json && node dist-test/test/read-tool.test.js && node dist-test/test/write-edit-tools.test.js && node dist-test/test/ls-grep-glob-tools.test.js"
   },
   "devDependencies": {
+    "@types/express": "^4.17.21",
     "@types/mime-types": "^3.0.1",
     "@types/mocha": "^10.0.10",
     "@types/node": "20.x",
@@ -269,8 +275,10 @@
     "@openrouter/ai-sdk-provider": "^0.7.2",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
+    "@vscode/codicons": "^0.0.44",
     "ai": "^4.3.16",
     "execa": "^9.6.0",
+    "express": "^4.18.2",
     "glob": "^11.0.3",
     "highlight.js": "^11.11.1",
     "lucide-react": "^0.522.0",
@@ -282,6 +290,7 @@
     "react-zoom-pan-pinch": "^3.7.0",
     "rehype-highlight": "^7.0.2",
     "remark-gfm": "^4.0.1",
-    "zod": "^3.25.67"
+    "zod": "^3.25.67",
+    "zustand": "^5.0.9"
   }
 }

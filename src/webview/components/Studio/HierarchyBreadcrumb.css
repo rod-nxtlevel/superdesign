@@ -1,0 +1,51 @@
+.hierarchy-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.breadcrumb-item {
+  padding: 4px 8px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--vscode-foreground);
+  font-size: 13px;
+  font-family: var(--vscode-font-family);
+  cursor: pointer;
+  transition: background 0.15s ease;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.breadcrumb-item:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.breadcrumb-item.current {
+  font-weight: 600;
+  cursor: default;
+  pointer-events: none;
+}
+
+.breadcrumb-separator {
+  color: var(--vscode-descriptionForeground);
+  display: flex;
+  align-items: center;
+}
+
+.breadcrumb-separator .codicon {
+  font-size: 12px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .breadcrumb-item {
+    max-width: 120px;
+    font-size: 12px;
+  }
+}
+

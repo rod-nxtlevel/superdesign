@@ -18,22 +18,122 @@ This document outlines planned enhancements to make Superdesign deeply integrate
 
 ### 0.1. Native Browser Preview Integration
 
-**Status:** Not Implemented  
+**Status:** ✅ **COMPLETED**  
 **Priority:** **HIGHEST**  
-**Complexity:** Low-Medium  
-**Timeline:** 3-5 days
+**Complexity:** Medium  
+**Timeline:** 5-7 days
 
 #### Background
 Currently, Superdesign uses a custom Canvas view with constrained iframes that have limited viewport sizes, no auto-refresh, and cumbersome zoom controls. This creates a poor preview experience compared to native browser capabilities.
 
+**Critical Issue:** Superdesign generates HTML with external CDN dependencies (Tailwind CDN, Lucide icons, Chart.js, Google Fonts). Opening these files via `file://` protocol fails due to browser CORS (Cross-Origin Resource Sharing) security restrictions that block loading external resources from `https://` CDNs when the origin is `file://`.
+
 #### Objective
-Integrate Cursor/VS Code's native Simple Browser for full-featured HTML preview while maintaining the Canvas view for quick previews and design management actions.
+Integrate Cursor/VS Code's native Simple Browser for full-featured HTML preview via a built-in HTTP dev server, while maintaining the Canvas view for quick previews and design management actions.
 
 #### Implementation Details
 
-**A. Add "Open in Browser" Action to Design Frames**
+**A. Built-in Dev Server**
 
-Add a new button to the design frame dropdown menu that opens the selected design in Cursor's native Simple Browser:
+Create a lightweight HTTP server to serve `.superdesign/` files, enabling external CDN resources to load properly:
+
+```typescript
+// New file: src/services/devServer.ts
+
+import express from 'express';
+import * as vscode from 'vscode';
+import * as path from 'path';
+import { Logger } from '../utils/logger';
+
+export class SuperdesignDevServer {
+    private app: any;
+    private server: any;
+    private port: number = 0; // Dynamic port assignment
+    private isRunning: boolean = false;
+    private workspaceRoot: string;
+    
+    constructor(workspaceRoot: string) {
+        this.workspaceRoot = workspaceRoot;
+    }
+    
+    async start(): Promise<number> {
+        if (this.isRunning) {
+            return this.port;
+        }
+        
+        this.app = express();
+        
+        // Serve .superdesign folder with CORS headers
+        this.app.use('/.superdesign', (req: any, res: any, next: any) => {
+            res.header('Access-Control-Allow-Origin', '*');
+            res.header('Access-Control-Allow-Methods', 'GET');
+            next();
+        }, express.static(path.join(this.workspaceRoot, '.superdesign')));
+        
+        // Find available port (starting from 3456)
+        this.port = await this.findAvailablePort(3456);
+        
+        return new Promise((resolve, reject) => {
+            this.server = this.app.listen(this.port, () => {
+                this.isRunning = true;
+                Logger.info(`Superdesign dev server running on http://localhost:${this.port}`);
+                resolve(this.port);
+            });
+            
+            this.server.on('error', reject);
+        });
+    }
+    
+    private async findAvailablePort(startPort: number): Promise<number> {
+        const net = require('net');
+        
+        for (let port = startPort; port < startPort + 50; port++) {
+            if (await this.isPortAvailable(port)) {
+                return port;
+            }
+        }
+        throw new Error('No available ports found in range 3456-3506');
+    }
+    
+    private isPortAvailable(port: number): Promise<boolean> {
+        return new Promise((resolve) => {
+            const net = require('net');
+            const server = net.createServer();
+            
+            server.once('error', () => resolve(false));
+            server.once('listening', () => {
+                server.close();
+                resolve(true);
+            });
+            
+            server.listen(port);
+        });
+    }
+    
+    getDesignUrl(fileName: string): string {
+        if (!this.isRunning) {
+            throw new Error('Dev server is not running');
+        }
+        return `http://localhost:${this.port}/.superdesign/design_iterations/${fileName}`;
+    }
+    
+    getPort(): number {
+        return this.port;
+    }
+    
+    stop() {
+        if (this.server) {
+            this.server.close();
+            this.isRunning = false;
+            Logger.info('Superdesign dev server stopped');
+        }
+    }
+}
+```
+
+**B. Add "Open in Browser" Button to Design Frames**
+
+Add a new button to the design frame dropdown menu:
 
 ```typescript
 // In src/webview/components/DesignFrame.tsx
@@ -41,8 +141,8 @@ Add a new button to the design frame dropdown menu that opens the selected desig
 const handleOpenInBrowser = () => {
     if (vscode) {
         vscode.postMessage({
-            command: 'openInSimpleBrowser',
-            filePath: file.path
+            command: 'openInBrowser',
+            fileName: file.name
         });
     }
 };
@@ -55,7 +155,7 @@ const handleOpenInBrowser = () => {
         handleOpenInBrowser();
         setShowCopyDropdown(false);
     }}
-    title="Open in native browser (full viewport, auto-refresh, DevTools)"
+    title="Open in browser (full viewport, DevTools, external CDN resources)"
 >
     <svg className="dropdown-icon" viewBox="0 0 16 16" fill="currentColor">
         <path d="M14 2H2a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1zM2 12V3h12v9H2z"/>
@@ -64,28 +164,68 @@ const handleOpenInBrowser = () => {
 </button>
 ```
 
-**B. Extension Message Handler**
+**C. Extension Integration**
 
-Handle the message in the extension to open files in Simple Browser:
+Initialize dev server and handle browser open requests:
 
 ```typescript
-// In src/extension.ts (around line 1750, in SuperdesignCanvasPanel)
+// In src/extension.ts
 
-// Handle message from webview
+import { SuperdesignDevServer } from './services/devServer';
+
+// Add at module level
+let devServer: SuperdesignDevServer | undefined;
+
+export async function activate(context: vscode.ExtensionContext) {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    
+    // Initialize dev server
+    if (workspaceRoot) {
+        devServer = new SuperdesignDevServer(workspaceRoot);
+    }
+    
+    // ... existing activation code ...
+}
+
+// In SuperdesignCanvasPanel message handler (around line 1750)
 webview.onDidReceiveMessage(
     async (message) => {
         switch (message.command) {
             // ... existing cases ...
             
-            case 'openInSimpleBrowser':
+            case 'openInBrowser':
                 try {
-                    const fileUri = vscode.Uri.file(message.filePath);
-                    // Use VS Code's Simple Browser command
-                    await vscode.commands.executeCommand(
-                        'simpleBrowser.show',
-                        fileUri.toString()
-                    );
-                    Logger.info(`Opened ${message.filePath} in Simple Browser`);
+                    if (!devServer) {
+                        throw new Error('No workspace folder found');
+                    }
+                    
+                    // Start dev server if not running
+                    await devServer.start();
+                    
+                    // Get HTTP URL for the design file
+                    const url = devServer.getDesignUrl(message.fileName);
+                    
+                    // Open in Simple Browser (or system browser as fallback)
+                    try {
+                        await vscode.commands.executeCommand(
+                            'simpleBrowser.show',
+                            url
+                        );
+                    } catch (simpleBrowserError) {
+                        // Fallback to system browser if Simple Browser unavailable
+                        await vscode.env.openExternal(vscode.Uri.parse(url));
+                    }
+                    
+                    vscode.window.showInformationMessage(
+                        `Design opened at ${url}`,
+                        'Copy URL'
+                    ).then(action => {
+                        if (action === 'Copy URL') {
+                            vscode.env.clipboard.writeText(url);
+                        }
+                    });
+                    
+                    Logger.info(`Opened ${message.fileName} in browser at ${url}`);
                 } catch (error) {
                     Logger.error(`Failed to open in browser: ${error}`);
                     vscode.window.showErrorMessage(
@@ -98,38 +238,31 @@ webview.onDidReceiveMessage(
     null,
     this._disposables
 );
-```
 
-**C. File Watcher for Auto-Refresh**
-
-Optionally add a file watcher to auto-refresh the Simple Browser when design files change:
-
-```typescript
-// Watch for changes and refresh browser if open
-private _browserWatcher: vscode.FileSystemWatcher | undefined;
-
-private _setupBrowserWatcher() {
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-    if (!workspaceFolder) return;
-    
-    const designPattern = new vscode.RelativePattern(
-        workspaceFolder,
-        '.superdesign/design_iterations/**/*.{html,svg,css}'
-    );
-    
-    this._browserWatcher = vscode.workspace.createFileSystemWatcher(designPattern);
-    
-    this._browserWatcher.onDidChange(async (uri) => {
-        // Notify Simple Browser to refresh if it's showing this file
-        // Note: Simple Browser may handle this automatically
-        Logger.info(`Design file changed: ${uri.fsPath}`);
-    });
-    
-    this._disposables.push(this._browserWatcher);
+// Clean up on deactivation
+export function deactivate() {
+    if (devServer) {
+        devServer.stop();
+    }
 }
 ```
 
-**D. Update Canvas Empty State**
+**D. Add Express Dependency**
+
+Update package.json:
+
+```json
+{
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21"
+  }
+}
+```
+
+**E. Update Canvas Empty State**
 
 Update the empty state message to mention browser preview:
 
@@ -140,31 +273,58 @@ Update the empty state message to mention browser preview:
     <kbd>Help me design a calculator UI</kbd> and preview the UI here.
     <br />
     <small style={{ opacity: 0.7 }}>
-        Tip: Use the dropdown menu on any design to open it in a full browser view.
+        Tip: Use the dropdown menu on any design to open it in a full browser view with dev server.
     </small>
 </p>
 ```
 
+**F. Optional: Auto-Open Dev Server on Design Generation**
+
+Optionally start the dev server automatically when first design is generated:
+
+```typescript
+// In CustomAgentService or wherever designs are created
+if (devServer && !devServer.isRunning) {
+    await devServer.start();
+    vscode.window.showInformationMessage(
+        `Superdesign dev server started on port ${devServer.getPort()}`
+    );
+}
+```
+
 #### Benefits
+- ✅ **Works with CDN resources** - HTTP server allows external HTTPS resources (solves CORS issue)
 - ✅ **Full viewport rendering** - No size constraints
 - ✅ **Native browser features** - Zoom, refresh, DevTools
-- ✅ **Auto-refresh** - VS Code watches file changes
+- ✅ **Auto-refresh** - Can add file watching to dev server
 - ✅ **Better UX** - Familiar browser interface
+- ✅ **Zero configuration** - Automatic port selection (3456-3506 range)
+- ✅ **Isolated** - Doesn't conflict with project's dev server
+- ✅ **Secure** - Only serves `.superdesign/` folder
+- ✅ **Fallback support** - Opens in system browser if Simple Browser unavailable
 - ✅ **Keep Canvas** - Still available for quick previews and shortcuts
-- ✅ **Best of both worlds** - Quick preview in Canvas, full preview in browser
 
 #### User Workflow
 1. Generate designs → appear in Canvas
 2. Quick preview in Canvas (with shortcuts: Create variations, Iterate, Copy prompt)
-3. Click "Open in Browser" for full-featured preview
-4. Make changes → browser auto-refreshes
-5. Use browser DevTools for debugging
+3. Click "Open in Browser" → Dev server auto-starts on first use
+4. Design opens at `http://localhost:3456/.superdesign/design_iterations/[file].html`
+5. Full browser features available (viewport, DevTools, external CDN resources load properly)
+6. Make changes → browser auto-refreshes (or manual refresh)
+7. Dev server runs in background until VS Code closes
+
+#### Technical Notes
+- **Port Range:** 3456-3506 (auto-selects first available)
+- **CORS Enabled:** External CDN resources (Tailwind, Lucide, Chart.js) load correctly
+- **Security:** Only serves `.superdesign/` folder, not entire workspace
+- **Performance:** Lightweight Express server with minimal overhead
+- **Cleanup:** Server automatically stops on extension deactivation
 
 ---
 
 ### 0.2. Design Lifecycle Management
 
-**Status:** Not Implemented  
+**Status:** ✅ **COMPLETED** (Phase 1)  
 **Priority:** **HIGH**  
 **Complexity:** Medium  
 **Timeline:** 1-2 weeks
@@ -920,6 +1080,186 @@ Uses the first file found.
 - [ ] File watcher works for all three file types
 - [ ] Output channel shows which rules file is active
 - [ ] "Edit Design Rules" command opens correct file
+
+---
+
+### 0.4. Canvas View UX Improvements
+
+**Status:** ✅ **COMPLETED**  
+**Priority:** **HIGH**  
+**Complexity:** Low-Medium  
+**Timeline:** 2-3 days
+
+#### Background
+The Canvas view currently has several UX issues that create a poor preview experience:
+1. **Default viewport is tablet** instead of desktop, which is too narrow for most modern designs
+2. **Desktop viewport width is only 1000px**, which is narrow for contemporary desktop designs (should be 1400px+)
+3. **Embedded pages break when zooming** - iframes use fixed pixel widths that don't respond to zoom transformations
+4. **No active refresh mechanism** - frames don't recalculate layout when zoom changes
+
+These issues make it difficult to properly preview and evaluate designs, especially at desktop resolutions.
+
+#### Objective
+Fix Canvas viewport sizing and zoom behavior to provide a smooth, professional preview experience that matches modern design requirements.
+
+#### Implementation Details
+
+**A. Change Default Viewport to Desktop**
+
+Update the default viewport mode in `CanvasView.tsx`:
+
+```typescript
+// In src/webview/components/CanvasView.tsx, line 76
+// Change from:
+const [globalViewportMode, setGlobalViewportMode] = useState<ViewportMode>('tablet');
+// To:
+const [globalViewportMode, setGlobalViewportMode] = useState<ViewportMode>('desktop');
+```
+
+**B. Increase Viewport Dimensions**
+
+Update the viewport configuration to use modern, standard sizes:
+
+```typescript
+// In src/webview/components/CanvasView.tsx, around line 53
+viewports: {
+    desktop: { width: 1400, height: 800 },  // Modern desktop (was 1000x600)
+    tablet: { width: 768, height: 1024 },   // Standard tablet (was 640x800)
+    mobile: { width: 375, height: 667 }     // Standard mobile (was 320x550)
+},
+```
+
+**C. Make Iframes Responsive to Container**
+
+Update iframe styling in `DesignFrame.tsx` to use percentage-based sizing:
+
+```typescript
+// In src/webview/components/DesignFrame.tsx, update iframe style (around line 488)
+style={{
+    width: '100%',
+    height: '100%',
+    border: 'none',
+    background: 'white',
+    borderRadius: '0 0 6px 6px',
+    pointerEvents: (isSelected && !dragPreventOverlay && !isDragging) ? 'auto' : 'none',
+    transform: 'scale(1)', // Force hardware acceleration
+    transformOrigin: 'top left'
+}}
+```
+
+**D. Force Layout Recalculation on Zoom**
+
+Add a key prop to force re-render when zoom changes significantly:
+
+```typescript
+// In src/webview/components/CanvasView.tsx, around line 834
+<DesignFrame
+    key={`${file.name}-${Math.floor(currentZoom * 10)}`}
+    file={file}
+    position={finalPosition}
+    // ... rest of props
+/>
+```
+
+**E. Update Frame Dimensions Calculation**
+
+Ensure frame dimensions properly account for viewport sizes:
+
+```typescript
+// In src/webview/components/CanvasView.tsx, around line 819
+const frameViewport = getFrameViewport(file.name);
+const viewportDimensions = currentConfig.viewports[frameViewport];
+
+// Ensure dimensions include header space
+const actualWidth = viewportDimensions.width;
+const actualHeight = viewportDimensions.height + 50; // Add space for header
+```
+
+#### Benefits
+- ✅ **Better desktop preview** - 1400px width matches modern design standards
+- ✅ **Smooth zoom behavior** - Frames properly scale and refresh when zooming
+- ✅ **Standard viewport sizes** - Matches common device breakpoints (375px mobile, 768px tablet, 1400px desktop)
+- ✅ **No layout breaks** - Iframes remain properly sized at all zoom levels
+- ✅ **Professional experience** - Canvas feels polished and production-ready
+
+#### Testing Checklist
+- [ ] Canvas opens with desktop viewport by default
+- [ ] Desktop frames display at 1400px width
+- [ ] Zooming in/out doesn't break frame layout
+- [ ] Frames refresh properly when zoom changes
+- [ ] Tablet and mobile viewports still work correctly
+- [ ] Switching between viewports works smoothly
+- [ ] Frame dimensions update correctly when viewport changes
+
+#### Notes
+- This is a quick win that significantly improves the Canvas UX
+- No breaking changes - existing designs will work better
+- Complements the Native Browser Preview feature (0.1) by making in-Canvas preview better
+- Should be implemented before or alongside Design Lifecycle Management (0.2)
+
+---
+
+### 0.5. Critical Bug Fixes
+
+**Status:** ✅ **COMPLETED**  
+**Priority:** **CRITICAL**  
+**Date Fixed:** December 15, 2025
+
+#### Bugs Identified & Fixed
+
+**A. Double `.superdesign` Path Nesting Bug**
+
+**Problem:** Design files were being created in the wrong location:
+- **Expected:** `.superdesign/design_iterations/file.html`
+- **Actual:** `.superdesign/.superdesign/design_iterations/file.html`
+
+**Root Cause:** System prompts in multiple files were instructing the AI to write to `.superdesign/design_iterations/` paths, but the `workingDirectory` context was already set to `.superdesign/`. This caused path.resolve() to concatenate them, creating a double-nested structure.
+
+**Impact:** 
+- Canvas reported "No design files found"
+- Browser preview failed to load designs
+- File system became cluttered with nested folders
+
+**Files Fixed:**
+- `src/extension.ts` (lines 277, 523, 625, 626, 635)
+- `src/providers/claudeCodeProvider.ts` (line 215)
+- `src/providers/claudeApiProvider.ts` (line 182)
+
+**Solution:** Changed all system prompt path references from `.superdesign/design_iterations/` to `design_iterations/` to work correctly with the already-configured working directory.
+
+**B. API Key Logging Security Issue** 🔐
+
+**Problem:** API keys were being logged to the Output panel:
+```typescript
+this.outputChannel.appendLine(`Anthropic API key found: ${anthropicKey.substring(0, 12)}...`);
+this.outputChannel.appendLine(`OpenAI API key found: ${openaiKey.substring(0, 7)}...`);
+```
+
+**Security Risk:** Even partial key exposure can lead to:
+- Keys visible in screen recordings/shares
+- Console history containing sensitive data
+- Potential key compromise
+
+**Files Fixed:**
+- `src/services/customAgentService.ts` (lines 216, 241)
+
+**Solution:** Changed logging to non-sensitive confirmation messages:
+```typescript
+this.outputChannel.appendLine(`Anthropic API key: ✓ configured`);
+this.outputChannel.appendLine(`OpenAI API key: ✓ configured`);
+```
+
+#### Testing Results
+- ✅ Design files now created in correct location
+- ✅ Canvas successfully detects and displays designs
+- ✅ Browser preview works with dev server
+- ✅ No API keys logged to Output panel
+- ✅ Multiple design generation cycles tested successfully
+
+#### Security Recommendations
+- Users should rotate any API keys that may have been exposed in logs
+- Future logging should never include sensitive credentials
+- Consider adding `.gitignore` entries for log files if any are created
 
 ---
 
@@ -2271,7 +2611,8 @@ export class SuperdesignMCPClient {
 
 | Feature | Priority | Complexity | Impact | Implement First? |
 |---------|----------|------------|--------|------------------|
-| **Native Browser Preview** | **HIGHEST** | Low-Medium | **Critical** | ✅ **YES - Immediate** |
+| **Native Browser Preview** | **HIGHEST** | Medium | **Critical** | ✅ **YES - Immediate** |
+| **Canvas View UX Improvements** | **HIGH** | Low-Medium | **High** | ✅ **YES - Quick Win** |
 | **Design Lifecycle Management** | **HIGH** | Medium | **Critical** | ✅ **YES - Immediate** |
 | **Design Rules File Integration** | **CRITICAL** | Low | **Critical** | ✅ **YES - DONE** |
 | Project Context Discovery | High | Medium | High | ✅ Yes - Foundation |
@@ -2292,27 +2633,41 @@ export class SuperdesignMCPClient {
 
 ## Development Roadmap
 
-### Sprint 0: Critical UX Fixes (Week 1) - **START HERE**
+### Sprint 0: Critical UX Fixes (Week 1-2) - **START HERE**
 - [x] **Design Rules File Integration** ✅ **COMPLETED**
   - [x] Add design rules loader (reads .cursor/rules/design.mdc, .windsurfrules, CLAUDE.md)
   - [x] Extract frontmatter from MDC files
   - [x] Use loaded rules in system prompt instead of hardcoded defaults
   - [x] Add file watcher for hot-reload when rules change
   - [x] Add logging to show which rules file is active
-- [ ] **Native Browser Preview Integration**
-  - [ ] Add "Open in Browser" button to design frame dropdown
-  - [ ] Implement Simple Browser command handler
-  - [ ] Add file watcher for auto-refresh
-  - [ ] Update Canvas empty state messaging
-- [ ] **Design Lifecycle Management (Phase 1)**
-  - [ ] Create design metadata system (metadata.json)
-  - [ ] Add status buttons to design frames (Approve, Archive, Delete)
-  - [ ] Implement status filter in Canvas toolbar
-  - [ ] Add basic tag system
-  - [ ] Create archive folder structure
-  - [ ] Add delete confirmation dialogs
+- [x] **Canvas View UX Improvements** ✅ **COMPLETED**
+  - [x] Change default viewport from tablet to desktop
+  - [x] Update viewport dimensions (desktop: 1400x800, tablet: 768x1024, mobile: 375x667)
+  - [x] Make iframes responsive with percentage-based sizing
+  - [x] Add key prop to force re-render on zoom changes
+  - [x] Update frame dimensions calculation to include header space
+  - [x] Test zoom behavior and viewport switching
+- [x] **Native Browser Preview Integration** (with Built-in Dev Server) ✅ **COMPLETED**
+  - [x] Create SuperdesignDevServer class (src/services/devServer.ts)
+  - [x] Implement port detection (range 3456-3506)
+  - [x] Add Express server with CORS headers for .superdesign folder
+  - [x] Add "Open in Browser" button to design frame dropdown
+  - [x] Implement message handler for browser open command
+  - [x] Add dev server initialization on extension activation
+  - [x] Add cleanup on extension deactivation
+  - [x] Add express and @types/express dependencies
+  - [x] Update Canvas empty state messaging
+  - [x] Test with external CDN resources (Tailwind, Lucide, Chart.js)
+- [x] **Design Lifecycle Management (Phase 1)** ✅ **COMPLETED**
+  - [x] Create design metadata system (metadata.json)
+  - [x] Add status buttons to design frames (Approve, Archive, Delete)
+  - [x] Implement status management in dropdown menu
+  - [x] Add basic tag system
+  - [x] Create archive folder structure
+  - [x] Add delete confirmation dialogs
+  - [x] Status badges on design frames
 
-**Deliverable:** User-controlled design rules + better preview experience + basic design management
+**Deliverable:** ✅ **COMPLETED** - User-controlled design rules + improved Canvas UX + better preview experience + complete design lifecycle management
 
 ### Sprint 1: Foundation (Weeks 2-3)
 - [ ] Complete Design Lifecycle Management (Phase 2)
@@ -2422,6 +2777,7 @@ export class SuperdesignMCPClient {
 - Figma integration has architectural constraints - multiple approaches available
 - Focus should be on making HTML output as contextually rich as possible
 - The goal is not to replace Cursor's AI, but to complement it with design-specific capabilities
+- **CORS Discovery (Jan 2025):** Initial plan assumed `file://` protocol would work, but testing revealed browser security restrictions block external CDN resources. Solution: Built-in HTTP dev server (Option A) chosen to serve designs via `http://localhost` with CORS headers enabled.
 
 ---
 
