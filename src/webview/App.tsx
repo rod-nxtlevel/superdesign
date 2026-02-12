@@ -10,43 +10,82 @@ import type { DesignFile } from './types/canvas.types';
 
 // Import CSS as string for esbuild
 import styles from './App.css';
+import galleryViewStyles from './components/Gallery/GalleryView.css';
+import designCardStyles from './components/Gallery/DesignCard.css';
+import galleryToolbarStyles from './components/Gallery/GalleryToolbar.css';
+import compareViewStyles from './components/Compare/CompareView.css';
+import compareFrameStyles from './components/Compare/CompareFrame.css';
+import studioViewStyles from './components/Studio/StudioView.css';
+import studioFrameStyles from './components/Studio/StudioFrame.css';
+import variationStripStyles from './components/Studio/VariationStrip.css';
+import hierarchyBreadcrumbStyles from './components/Studio/HierarchyBreadcrumb.css';
 
 const App: React.FC = () => {
     console.log('🚀 App component starting...');
-    
+
     const [vscode] = useState(() => {
         console.log('📞 Acquiring vscode API...');
         return acquireVsCodeApi();
     });
-    
+
+    // Error trap
+    useEffect(() => {
+        const handleError = (event: ErrorEvent) => {
+            console.error('💥 Global error caught:', event.error);
+            // Send to extension using existing instance
+            vscode.postMessage({
+                command: 'error',
+                error: `Webview Error: ${event.message}`
+            });
+        };
+        window.addEventListener('error', handleError);
+        return () => window.removeEventListener('error', handleError);
+    }, [vscode]);
+
+    // Combine all styles
+    const allStyles = [
+        styles,
+        galleryViewStyles,
+        designCardStyles,
+        galleryToolbarStyles,
+        compareViewStyles,
+        compareFrameStyles,
+        studioViewStyles,
+        studioFrameStyles,
+        variationStripStyles,
+        hierarchyBreadcrumbStyles
+    ].join('\n');
+
+
+
     const [context, setContext] = useState<WebviewContext | null>(null);
     const [currentView, setCurrentView] = useState<'chat' | 'canvas'>('chat');
     const [nonce, setNonce] = useState<string | null>(null);
     const [useNewCanvas, setUseNewCanvas] = useState(false);
-    
+
     const canvasMode = useCanvasStore(state => state.mode);
     const { setDesigns, setIsLoading, setError } = useCanvasStore();
 
     useEffect(() => {
         console.log('🔄 App useEffect running...');
-        
+
         // Detect which view to render based on data-view attribute
         const rootElement = document.getElementById('root');
         console.log('📍 Root element:', rootElement);
-        
+
         const viewType = rootElement?.getAttribute('data-view');
         const nonceValue = rootElement?.getAttribute('data-nonce');
         const newCanvasFlag = rootElement?.getAttribute('data-new-canvas');
-        
+
         console.log('🎯 View type detected:', viewType);
         console.log('🔐 Nonce value:', nonceValue);
         console.log('🆕 New canvas flag:', newCanvasFlag);
-        
+
         if (nonceValue) {
             setNonce(nonceValue);
             console.log('✅ Nonce set:', nonceValue);
         }
-        
+
         if (newCanvasFlag === 'true') {
             setUseNewCanvas(true);
             console.log('✅ Using new Gallery/Studio canvas');
@@ -62,27 +101,27 @@ const App: React.FC = () => {
 
         // Inject CSS styles
         const styleElement = document.createElement('style');
-        styleElement.textContent = styles;
+        styleElement.textContent = allStyles;
         document.head.appendChild(styleElement);
         console.log('🎨 CSS styles injected');
 
         // Get context from window (only needed for chat interface)
         const webviewContext = (window as any).__WEBVIEW_CONTEXT__;
         console.log('🌐 Webview context from window:', webviewContext);
-        
+
         if (webviewContext) {
             setContext(webviewContext);
             console.log('✅ Context set:', webviewContext);
         } else {
             console.log('⚠️ No webview context found in window');
         }
-        
+
         // Set up message listener for new canvas
         if (viewType === 'canvas' && newCanvasFlag === 'true') {
             const messageHandler = (event: MessageEvent) => {
                 const message = event.data;
                 console.log('📨 Received message:', message);
-                
+
                 switch (message.command) {
                     case 'designs:list':
                         console.log('📋 Setting designs:', message.designs);
@@ -98,13 +137,13 @@ const App: React.FC = () => {
                         break;
                 }
             };
-            
+
             window.addEventListener('message', messageHandler);
-            
+
             // Request initial data
             vscode.postMessage({ command: 'canvas:ready' });
             console.log('📤 Sent canvas:ready message');
-            
+
             return () => {
                 window.removeEventListener('message', messageHandler);
                 document.head.removeChild(styleElement);
@@ -118,11 +157,11 @@ const App: React.FC = () => {
 
     const renderView = () => {
         console.log('🖼️ Rendering view, currentView:', currentView, 'useNewCanvas:', useNewCanvas);
-        
+
         switch (currentView) {
             case 'canvas':
                 console.log('🎨 Rendering canvas, mode:', canvasMode);
-                
+
                 if (useNewCanvas) {
                     // New Gallery → Studio system
                     switch (canvasMode) {
@@ -144,7 +183,7 @@ const App: React.FC = () => {
                         return <div>Error rendering canvas: {String(error)}</div>;
                     }
                 }
-                
+
             case 'chat':
             default:
                 console.log('💬 Rendering ChatInterface, context:', !!context);
@@ -155,7 +194,7 @@ const App: React.FC = () => {
                 }
                 try {
                     return (
-                        <ChatInterface 
+                        <ChatInterface
                             layout={context.layout}
                             vscode={vscode}
                         />

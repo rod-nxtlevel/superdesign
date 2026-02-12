@@ -2,10 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { TransformWrapper, TransformComponent, ReactZoomPanPinchRef } from 'react-zoom-pan-pinch';
 import DesignFrame from './DesignFrame';
 import { calculateGridPosition, calculateFitToView, getGridMetrics, generateResponsiveConfig, buildHierarchyTree, calculateHierarchyPositions, getHierarchicalPosition, detectDesignRelationships } from '../utils/gridLayout';
-import { 
-    DesignFile, 
-    CanvasState, 
-    WebviewMessage, 
+import {
+    DesignFile,
+    CanvasState,
+    WebviewMessage,
     ExtensionToWebviewMessage,
     CanvasConfig,
     ViewportMode,
@@ -66,7 +66,7 @@ const CANVAS_CONFIG: CanvasConfig = {
 const CanvasView: React.FC<CanvasViewProps> = ({ vscode, nonce }) => {
     console.log('🎨 CanvasView component starting...');
     console.log('📞 CanvasView props - vscode:', !!vscode, 'nonce:', nonce);
-    
+
     const [designFiles, setDesignFiles] = useState<DesignFile[]>([]);
     const [selectedFrames, setSelectedFrames] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -90,7 +90,7 @@ const CanvasView: React.FC<CanvasViewProps> = ({ vscode, nonce }) => {
     const transformRef = useRef<ReactZoomPanPinchRef>(null);
 
     console.log('✅ CanvasView state initialized successfully');
-    
+
     // Performance optimization: Switch render modes based on zoom level
     const getOptimalRenderMode = (_zoom: number): 'placeholder' | 'iframe' => {
         // Always render iframe as requested by the user
@@ -104,11 +104,11 @@ const CanvasView: React.FC<CanvasViewProps> = ({ vscode, nonce }) => {
         const currentScale = transformState?.scale || 1;
         const currentTranslateX = transformState?.positionX || 0;
         const currentTranslateY = transformState?.positionY || 0;
-        
+
         // Calculate mouse position relative to canvas, then adjust for zoom and pan
         const rawMouseX = clientX - canvasRect.left;
         const rawMouseY = clientY - canvasRect.top;
-        
+
         // Transform mouse coordinates to canvas space (inverse of current transform)
         return {
             x: (rawMouseX - currentTranslateX) / currentScale,
@@ -140,26 +140,26 @@ const CanvasView: React.FC<CanvasViewProps> = ({ vscode, nonce }) => {
                 newFrameViewports[file.name] = viewport;
             });
             setFrameViewports(newFrameViewports);
-            
+
             // Update hierarchy positioning when viewport changes to adjust connection spacing
             if (hierarchyTree && designFiles.length > 0) {
                 // Recalculate frame dimensions for new viewport
                 let totalWidth = 0;
                 let totalHeight = 0;
                 let frameCount = 0;
-                
+
                 designFiles.forEach(file => {
                     const viewportDimensions = currentConfig.viewports[viewport];
                     totalWidth += viewportDimensions.width;
                     totalHeight += viewportDimensions.height + 50; // Add header space
                     frameCount++;
                 });
-                
+
                 const avgFrameDimensions = frameCount > 0 ? {
                     width: Math.round(totalWidth / frameCount),
                     height: Math.round(totalHeight / frameCount)
                 } : { width: 400, height: 550 };
-                
+
                 const updatedTree = calculateHierarchyPositions(hierarchyTree, currentConfig, avgFrameDimensions);
                 setHierarchyTree(updatedTree);
             }
@@ -169,7 +169,7 @@ const CanvasView: React.FC<CanvasViewProps> = ({ vscode, nonce }) => {
     const toggleGlobalViewport = () => {
         const newUseGlobal = !useGlobalViewport;
         setUseGlobalViewport(newUseGlobal);
-        
+
         if (newUseGlobal) {
             // Set all frames to current global viewport
             const newFrameViewports: FrameViewportState = {};
@@ -202,27 +202,27 @@ const CanvasView: React.FC<CanvasViewProps> = ({ vscode, nonce }) => {
         // Listen for messages from extension
         const messageHandler = (event: MessageEvent) => {
             const message: ExtensionToWebviewMessage = event.data;
-            
+
             switch (message.command) {
                 case 'designFilesLoaded':
                     // Convert date strings back to Date objects
                     const filesWithDates = message.data.files.map(file => ({
                         ...file,
-                        modified: new Date(file.modified)
+                        modified: new Date(file.modified || new Date())
                     }));
-                    
+
                     // Detect design relationships and build hierarchy
                     const filesWithRelationships = detectDesignRelationships(filesWithDates);
                     setDesignFiles(filesWithRelationships);
-                    
+
                     // Build hierarchy tree
                     const tree = buildHierarchyTree(filesWithRelationships);
-                    
+
                     // Calculate average frame dimensions based on viewport usage
                     let totalWidth = 0;
                     let totalHeight = 0;
                     let frameCount = 0;
-                    
+
                     filesWithRelationships.forEach(file => {
                         const frameViewport = getFrameViewport(file.name);
                         const viewportDimensions = currentConfig.viewports[frameViewport];
@@ -230,17 +230,17 @@ const CanvasView: React.FC<CanvasViewProps> = ({ vscode, nonce }) => {
                         totalHeight += viewportDimensions.height + 50; // Add header space
                         frameCount++;
                     });
-                    
+
                     const avgFrameDimensions = frameCount > 0 ? {
                         width: Math.round(totalWidth / frameCount),
                         height: Math.round(totalHeight / frameCount)
                     } : { width: 400, height: 550 };
-                    
+
                     const positionedTree = calculateHierarchyPositions(tree, currentConfig, avgFrameDimensions);
                     setHierarchyTree(positionedTree);
-                    
+
                     setIsLoading(false);
-                    
+
                     // Auto-center view after files are loaded
                     setTimeout(() => {
                         if (transformRef.current) {
@@ -248,7 +248,7 @@ const CanvasView: React.FC<CanvasViewProps> = ({ vscode, nonce }) => {
                         }
                     }, 100);
                     break;
-                    
+
                 case 'error':
                     setError(message.data.error);
                     setIsLoading(false);
@@ -269,11 +269,11 @@ const CanvasView: React.FC<CanvasViewProps> = ({ vscode, nonce }) => {
 
     const handleFrameSelect = (fileName: string) => {
         setSelectedFrames([fileName]); // Single selection for now
-        
+
         // Find the selected file to get its full path
         const selectedFile = designFiles.find(file => file.name === fileName);
-        const filePath = selectedFile ? selectedFile.path : fileName;
-        
+        const filePath = selectedFile?.path || fileName;
+
         const selectMessage: WebviewMessage = {
             command: 'selectFrame',
             data: { fileName }
@@ -291,15 +291,15 @@ const CanvasView: React.FC<CanvasViewProps> = ({ vscode, nonce }) => {
     const handleSendToChat = (fileName: string, prompt: string) => {
         // Find the selected file to get its full path
         const selectedFile = designFiles.find(file => file.name === fileName);
-        const filePath = selectedFile ? selectedFile.path : fileName;
-        
+        const filePath = selectedFile?.path || fileName;
+
         // Set context first
         const contextMessage: WebviewMessage = {
             command: 'setContextFromCanvas',
             data: { fileName: filePath, type: 'frame' }
         };
         vscode.postMessage(contextMessage);
-        
+
         // Then send the prompt to the chat input
         const promptMessage: WebviewMessage = {
             command: 'setChatPrompt',
@@ -321,9 +321,9 @@ const CanvasView: React.FC<CanvasViewProps> = ({ vscode, nonce }) => {
                 maxScale: 3,
                 smooth: false
             });
-            
+
             transformRef.current.zoomIn(0.05);
-            
+
             // Log after zoom (with small delay to capture the change)
             setTimeout(() => {
                 const newState = transformRef.current?.instance?.transformState;
@@ -348,9 +348,9 @@ const CanvasView: React.FC<CanvasViewProps> = ({ vscode, nonce }) => {
                 positionY: currentState?.positionY,
                 step: 0.05
             });
-            
+
             transformRef.current.zoomOut(0.05);
-            
+
             // Log after zoom (with small delay to capture the change)
             setTimeout(() => {
                 const newState = transformRef.current?.instance?.transformState;
@@ -374,9 +374,9 @@ const CanvasView: React.FC<CanvasViewProps> = ({ vscode, nonce }) => {
                 positionX: currentState?.positionX,
                 positionY: currentState?.positionY
             });
-            
+
             transformRef.current.resetTransform();
-            
+
             setTimeout(() => {
                 const newState = transformRef.current?.instance?.transformState;
                 console.log('🔍 RESET ZOOM - After:', {
@@ -390,14 +390,14 @@ const CanvasView: React.FC<CanvasViewProps> = ({ vscode, nonce }) => {
 
     const handleTransformChange = (ref: ReactZoomPanPinchRef) => {
         const state = ref.state;
-        
+
         // Prevent negative or zero scales
         if (state.scale <= 0) {
             console.error('🚨 INVALID SCALE DETECTED:', state.scale, '- Resetting to minimum');
             ref.setTransform(state.positionX, state.positionY, 0.1);
             return;
         }
-        
+
         console.log('🔄 TRANSFORM CHANGE:', {
             scale: state.scale,
             positionX: state.positionX,
@@ -412,24 +412,24 @@ const CanvasView: React.FC<CanvasViewProps> = ({ vscode, nonce }) => {
         if (customPositions[fileName]) {
             return customPositions[fileName];
         }
-        
+
         // Use hierarchy layout if in hierarchy mode and tree is available
         if (layoutMode === 'hierarchy' && hierarchyTree) {
             return getHierarchicalPosition(fileName, hierarchyTree);
         }
-        
+
         // Default grid position calculation
         const viewportMode = getFrameViewport(fileName);
         const viewportDimensions = currentConfig.viewports[viewportMode];
         const actualWidth = viewportDimensions.width;
         const actualHeight = viewportDimensions.height + 50;
-        
+
         const col = index % currentConfig.framesPerRow;
         const row = Math.floor(index / currentConfig.framesPerRow);
-        
+
         const x = col * (Math.max(actualWidth, currentConfig.frameSize.width) + currentConfig.gridSpacing);
         const y = row * (Math.max(actualHeight, currentConfig.frameSize.height) + currentConfig.gridSpacing);
-        
+
         return { x, y };
     };
 
@@ -438,15 +438,15 @@ const CanvasView: React.FC<CanvasViewProps> = ({ vscode, nonce }) => {
         // Get canvas grid element for proper coordinate calculation
         const canvasGrid = document.querySelector('.canvas-grid') as HTMLElement;
         if (!canvasGrid) return;
-        
+
         const canvasRect = canvasGrid.getBoundingClientRect();
         const canvasMousePos = transformMouseToCanvasSpace(mouseEvent.clientX, mouseEvent.clientY, canvasRect);
-        
+
         // Also ensure this frame is selected
         if (!selectedFrames.includes(fileName)) {
             setSelectedFrames([fileName]);
         }
-        
+
         setDragState({
             isDragging: true,
             draggedFrame: fileName,
@@ -461,12 +461,12 @@ const CanvasView: React.FC<CanvasViewProps> = ({ vscode, nonce }) => {
 
     const handleDragMove = (mousePos: GridPosition) => {
         if (!dragState.isDragging || !dragState.draggedFrame) return;
-        
+
         const newPosition = {
             x: mousePos.x - dragState.offset.x,
             y: mousePos.y - dragState.offset.y
         };
-        
+
         setDragState(prev => ({
             ...prev,
             currentPosition: newPosition
@@ -475,20 +475,20 @@ const CanvasView: React.FC<CanvasViewProps> = ({ vscode, nonce }) => {
 
     const handleDragEnd = () => {
         if (!dragState.isDragging || !dragState.draggedFrame) return;
-        
+
         // Snap to grid (optional - makes positioning cleaner)
         const gridSize = 25;
         const snappedPosition = {
             x: Math.round(dragState.currentPosition.x / gridSize) * gridSize,
             y: Math.round(dragState.currentPosition.y / gridSize) * gridSize
         };
-        
+
         // Save the new position
         setCustomPositions(prev => ({
             ...prev,
             [dragState.draggedFrame!]: snappedPosition
         }));
-        
+
         // Reset drag state
         setDragState({
             isDragging: false,
@@ -509,32 +509,32 @@ const CanvasView: React.FC<CanvasViewProps> = ({ vscode, nonce }) => {
         return connections.map(connection => {
             const fromIndex = files.findIndex(f => f.name === connection.fromFrame);
             const toIndex = files.findIndex(f => f.name === connection.toFrame);
-            
+
             if (fromIndex === -1 || toIndex === -1) {
                 return connection; // Keep original if frame not found
             }
-            
+
             // Get current positions (custom or calculated)
             const fromPosition = getFramePosition(connection.fromFrame, fromIndex);
             const toPosition = getFramePosition(connection.toFrame, toIndex);
-            
+
             // Get frame dimensions for connection point calculation
             const fromViewport = getFrameViewport(connection.fromFrame);
             const toViewport = getFrameViewport(connection.toFrame);
             const fromDimensions = currentConfig.viewports[fromViewport];
             const toDimensions = currentConfig.viewports[toViewport];
-            
+
             // Calculate connection points (center-right of from frame to center-left of to frame)
             const fromConnectionPoint = {
                 x: fromPosition.x + fromDimensions.width,
                 y: fromPosition.y + (fromDimensions.height + 50) / 2 // +50 for header
             };
-            
+
             const toConnectionPoint = {
                 x: toPosition.x,
                 y: toPosition.y + (toDimensions.height + 50) / 2 // +50 for header
             };
-            
+
             return {
                 ...connection,
                 fromPosition: fromConnectionPoint,
@@ -611,7 +611,7 @@ const CanvasView: React.FC<CanvasViewProps> = ({ vscode, nonce }) => {
             <div className="canvas-toolbar">
                 {/* Navigation Section */}
                 <div className="toolbar-section">
-                <div className="control-group">
+                    <div className="control-group">
                         <button className="toolbar-btn zoom-btn" onClick={handleZoomOut} title="Zoom Out (Cmd/Ctrl + -)">
                             <ZoomOutIcon />
                         </button>
@@ -619,8 +619,8 @@ const CanvasView: React.FC<CanvasViewProps> = ({ vscode, nonce }) => {
                             <span className="zoom-value">{Math.round(currentZoom * 100)}%</span>
                         </div>
                         <button className="toolbar-btn zoom-btn" onClick={handleZoomIn} title="Zoom In (Cmd/Ctrl + +)">
-                        <ZoomInIcon />
-                    </button>
+                            <ZoomInIcon />
+                        </button>
                         <div className="toolbar-divider"></div>
                         <button className="toolbar-btn" onClick={handleResetZoom} title="Reset Zoom (Cmd/Ctrl + 0)">
                             <HomeIcon />
@@ -633,71 +633,71 @@ const CanvasView: React.FC<CanvasViewProps> = ({ vscode, nonce }) => {
 
                 {/* Layout Section */}
                 <div className="toolbar-section">
-                <div className="control-group">
+                    <div className="control-group">
                         <div className="layout-toggle">
-                            <button 
+                            <button
                                 className={`toggle-btn ${layoutMode === 'grid' ? 'active' : ''}`}
                                 onClick={() => setLayoutMode('grid')}
                                 title="Grid Layout"
                             >
                                 <ScaleIcon />
                             </button>
-                            <button 
+                            <button
                                 className={`toggle-btn ${layoutMode === 'hierarchy' ? 'active' : ''}`}
                                 onClick={() => setLayoutMode('hierarchy')}
                                 title="Hierarchy Layout"
                                 disabled={!hierarchyTree || hierarchyTree.nodes.size === 0}
                             >
                                 <TreeIcon />
-                    </button>
+                            </button>
                         </div>
                         {layoutMode === 'hierarchy' && (
-                            <button 
+                            <button
                                 className={`toolbar-btn connection-btn ${showConnections ? 'active' : ''}`}
                                 onClick={() => setShowConnections(!showConnections)}
                                 title="Toggle Connection Lines"
                             >
                                 <LinkIcon />
-                    </button>
+                            </button>
                         )}
                     </div>
                 </div>
 
                 {/* Viewport Section */}
                 <div className="toolbar-section">
-                <div className="control-group">
-                    <button 
+                    <div className="control-group">
+                        <button
                             className={`toolbar-btn viewport-mode-btn ${useGlobalViewport ? 'active' : ''}`}
-                        onClick={toggleGlobalViewport}
-                        title="Toggle Global Viewport Mode"
-                    >
-                        <GlobeIcon />
-                    </button>
+                            onClick={toggleGlobalViewport}
+                            title="Toggle Global Viewport Mode"
+                        >
+                            <GlobeIcon />
+                        </button>
                         <div className="viewport-selector">
-                        <button 
+                            <button
                                 className={`viewport-btn ${globalViewportMode === 'mobile' && useGlobalViewport ? 'active' : ''}`}
-                            onClick={() => handleGlobalViewportChange('mobile')}
-                            title="Mobile View (375×667)"
-                            disabled={!useGlobalViewport}
-                        >
-                            <MobileIcon />
-                        </button>
-                        <button 
+                                onClick={() => handleGlobalViewportChange('mobile')}
+                                title="Mobile View (375×667)"
+                                disabled={!useGlobalViewport}
+                            >
+                                <MobileIcon />
+                            </button>
+                            <button
                                 className={`viewport-btn ${globalViewportMode === 'tablet' && useGlobalViewport ? 'active' : ''}`}
-                            onClick={() => handleGlobalViewportChange('tablet')}
-                            title="Tablet View (768×1024)"
-                            disabled={!useGlobalViewport}
-                        >
-                            <TabletIcon />
-                        </button>
-                        <button 
+                                onClick={() => handleGlobalViewportChange('tablet')}
+                                title="Tablet View (768×1024)"
+                                disabled={!useGlobalViewport}
+                            >
+                                <TabletIcon />
+                            </button>
+                            <button
                                 className={`viewport-btn ${globalViewportMode === 'desktop' && useGlobalViewport ? 'active' : ''}`}
-                            onClick={() => handleGlobalViewportChange('desktop')}
-                            title="Desktop View (1200×800)"
-                            disabled={!useGlobalViewport}
-                        >
-                            <DesktopIcon />
-                        </button>
+                                onClick={() => handleGlobalViewportChange('desktop')}
+                                title="Desktop View (1200×800)"
+                                disabled={!useGlobalViewport}
+                            >
+                                <DesktopIcon />
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -736,14 +736,14 @@ const CanvasView: React.FC<CanvasViewProps> = ({ vscode, nonce }) => {
                 onTransformed={(ref) => handleTransformChange(ref)}
                 onZoom={(ref) => {
                     const state = ref.state;
-                    
+
                     // Check for invalid scale and fix it
                     if (state.scale <= 0) {
                         console.error('🚨 ZOOM EVENT - Invalid scale:', state.scale, '- Fixing...');
                         ref.setTransform(state.positionX, state.positionY, 0.1);
                         return;
                     }
-                    
+
                     console.log('📏 ZOOM EVENT:', {
                         scale: state.scale,
                         positionX: state.positionX,
@@ -780,7 +780,7 @@ const CanvasView: React.FC<CanvasViewProps> = ({ vscode, nonce }) => {
                     wrapperClass="canvas-transform-wrapper"
                     contentClass="canvas-transform-content"
                 >
-                    <div 
+                    <div
                         className={`canvas-grid ${dragState.isDragging ? 'dragging' : ''}`}
                         onMouseMove={(e) => {
                             if (dragState.isDragging) {
@@ -795,7 +795,7 @@ const CanvasView: React.FC<CanvasViewProps> = ({ vscode, nonce }) => {
                             // Clear selection when clicking on empty space
                             if (e.target === e.currentTarget) {
                                 setSelectedFrames([]);
-                                
+
                                 // Also clear context in chat
                                 const clearContextMessage: WebviewMessage = {
                                     command: 'setContextFromCanvas',
@@ -817,19 +817,19 @@ const CanvasView: React.FC<CanvasViewProps> = ({ vscode, nonce }) => {
                         {designFiles.map((file, index) => {
                             const frameViewport = getFrameViewport(file.name);
                             const viewportDimensions = currentConfig.viewports[frameViewport];
-                            
+
                             // Use actual viewport dimensions (add frame border/header space)
                             const actualWidth = viewportDimensions.width;
                             const actualHeight = viewportDimensions.height + 50; // Add space for header
-                            
+
                             // Get position (custom or default grid)
                             const position = getFramePosition(file.name, index);
-                            
+
                             // If this frame is being dragged, use current drag position
-                            const finalPosition = dragState.isDragging && dragState.draggedFrame === file.name 
-                                ? dragState.currentPosition 
+                            const finalPosition = dragState.isDragging && dragState.draggedFrame === file.name
+                                ? dragState.currentPosition
                                 : position;
-                            
+
                             return (
                                 <DesignFrame
                                     key={file.name}

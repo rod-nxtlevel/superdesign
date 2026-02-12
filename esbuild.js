@@ -35,7 +35,7 @@ async function main() {
 		sourcesContent: false,
 		platform: 'node',
 		outfile: 'dist/extension.js',
-		external: ['vscode', 'express'],
+		external: ['vscode'],
 		logLevel: 'silent',
 		plugins: [
 			/* add to the end of plugins array */
@@ -56,13 +56,13 @@ async function main() {
 		logLevel: 'silent',
 		plugins: [esbuildProblemMatcherPlugin],
 		loader: {
-		  '.css': 'text',
-		  '.png': 'file',
-		  '.jpg': 'file',
-		  '.svg': 'file',
+			'.css': 'text',
+			'.png': 'file',
+			'.jpg': 'file',
+			'.svg': 'file',
 		},
 		define: {
-		  'process.env.NODE_ENV': production ? '"production"' : '"development"',
+			'process.env.NODE_ENV': production ? '"production"' : '"development"',
 		},
 		jsx: 'automatic', // This enables JSX support
 	});
@@ -80,16 +80,16 @@ async function main() {
 		]);
 		await ctx.dispose();
 		await webviewCtx.dispose();
-		
+
 		// Copy Claude Code SDK to dist for runtime access
 		const fs = require('fs');
 		const path = require('path');
 		const srcPath = path.join(__dirname, 'node_modules', '@anthropic-ai', 'claude-code');
 		const destPath = path.join(__dirname, 'dist', 'node_modules', '@anthropic-ai', 'claude-code');
-		
+
 		// Create directory structure
 		fs.mkdirSync(path.dirname(destPath), { recursive: true });
-		
+
 		// Copy files
 		function copyDir(src, dest) {
 			fs.mkdirSync(dest, { recursive: true });
@@ -100,21 +100,31 @@ async function main() {
 				entry.isDirectory() ? copyDir(srcPath, destPath) : fs.copyFileSync(srcPath, destPath);
 			}
 		}
-		
+
 		copyDir(srcPath, destPath);
 		console.log('Claude Code SDK copied to dist/');
-		
+
 		// Copy assets to dist folder
 		const assetsSrcPath = path.join(__dirname, 'src', 'assets');
 		const assetsDestPath = path.join(__dirname, 'dist', 'src', 'assets');
-		
+
 		if (fs.existsSync(assetsSrcPath)) {
 			copyDir(assetsSrcPath, assetsDestPath);
 			console.log('Assets copied to dist/src/assets/');
-		} else {
 			console.log('Assets directory not found at:', assetsSrcPath);
 		}
-		
+
+		// Copy Codicons to dist/assets/codicons
+		const codiconsSrcPath = path.join(__dirname, 'node_modules', '@vscode', 'codicons', 'dist');
+		const codiconsDestPath = path.join(__dirname, 'dist', 'src', 'assets', 'codicons');
+
+		if (fs.existsSync(codiconsSrcPath)) {
+			copyDir(codiconsSrcPath, codiconsDestPath);
+			console.log('Codicons copied to dist/src/assets/codicons/');
+		} else {
+			console.log('Codicons directory not found at:', codiconsSrcPath);
+		}
+
 		console.log('Build complete!');
 	}
 }

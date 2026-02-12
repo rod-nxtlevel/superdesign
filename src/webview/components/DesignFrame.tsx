@@ -60,10 +60,10 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
         if (onDragStart && e.button === 0) { // Left mouse button only
             e.preventDefault();
             e.stopPropagation();
-            
+
             // Show overlay to prevent iframe interaction during potential drag
             setDragPreventOverlay(true);
-            
+
             onDragStart(file.name, position, e);
         }
     };
@@ -104,10 +104,10 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
     const handleCopyPrompt = async (e: React.MouseEvent, platform?: string) => {
         e.preventDefault();
         e.stopPropagation();
-        
+
         let promptText = '';
         let platformName = '';
-        
+
         switch (platform) {
             case 'cursor':
                 promptText = `${file.content}\n\nAbove is the design implementation, please use that as a reference to build a similar UI component. Make sure to follow modern React and TypeScript best practices.`;
@@ -133,22 +133,22 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
                 promptText = `${file.content}\n\nAbove is the design implementation, please use that as a reference`;
                 platformName = '';
         }
-        
+
         try {
             await navigator.clipboard.writeText(promptText);
             console.log(`✅ Copied ${platformName} prompt to clipboard for:`, file.name);
-            
+
             // Show success state on button
             setCopyButtonState({ text: `Copied for ${platformName}!`, isSuccess: true });
             setTimeout(() => {
                 setCopyButtonState({ text: 'Copy prompt', isSuccess: false });
             }, 2000);
-            
+
             // Hide dropdown
             setShowCopyDropdown(false);
         } catch (err) {
             console.error('❌ Failed to copy to clipboard:', err);
-            
+
             // Fallback: create a temporary textarea and copy
             const textarea = document.createElement('textarea');
             textarea.value = promptText;
@@ -156,15 +156,15 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
             textarea.select();
             document.execCommand('copy');
             document.body.removeChild(textarea);
-            
+
             console.log(`✅ Copied ${platformName} prompt using fallback method for:`, file.name);
-            
+
             // Show success state on button
             setCopyButtonState({ text: `Copied for ${platformName}!`, isSuccess: true });
             setTimeout(() => {
                 setCopyButtonState({ text: 'Copy prompt', isSuccess: false });
             }, 2000);
-            
+
             // Hide dropdown
             setShowCopyDropdown(false);
         }
@@ -181,22 +181,22 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
     const handleCopyDesignPath = async (e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
-        
+
         const designPath = `Design file: ${file.path}`;
-        
+
         try {
             await navigator.clipboard.writeText(designPath);
             console.log(`✅ Copied design path to clipboard:`, designPath);
-            
+
             // Show success state on button
             setCopyPathButtonState({ text: 'Copied!', isSuccess: true });
             setTimeout(() => {
                 setCopyPathButtonState({ text: 'Copy design path', isSuccess: false });
             }, 2000);
-            
+
         } catch (err) {
             console.error('❌ Failed to copy design path to clipboard:', err);
-            
+
             // Fallback: create a temporary textarea and copy
             const textarea = document.createElement('textarea');
             textarea.value = designPath;
@@ -204,9 +204,9 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
             textarea.select();
             document.execCommand('copy');
             document.body.removeChild(textarea);
-            
+
             console.log(`✅ Copied design path using fallback method:`, designPath);
-            
+
             // Show success state on button
             setCopyPathButtonState({ text: 'Copied!', isSuccess: true });
             setTimeout(() => {
@@ -218,7 +218,7 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
     const handleCreateVariations = (e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
-        
+
         if (onSendToChat) {
             onSendToChat(file.name, 'Create more variations based on this style');
         }
@@ -227,7 +227,7 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
     const handleIterateWithFeedback = (e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
-        
+
         if (onSendToChat) {
             onSendToChat(file.name, 'Please create a few variations with this feedback: ');
         }
@@ -236,7 +236,7 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
     const handleOpenInBrowser = (e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
-        
+
         // Post message to extension to open in browser
         const vscode = (window as any).vscode;
         if (vscode) {
@@ -265,7 +265,7 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
     const handleArchive = (e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
-        
+
         const vscode = (window as any).vscode;
         if (vscode) {
             const message: WebviewMessage = {
@@ -279,7 +279,7 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
     const handleDelete = (e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
-        
+
         const vscode = (window as any).vscode;
         if (vscode) {
             const message: WebviewMessage = {
@@ -363,7 +363,7 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
                         </body>
                         </html>
                     `;
-                    
+
                     return (
                         <iframe
                             srcDoc={svgHtml}
@@ -400,11 +400,11 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
                 };
 
                 // Inject viewport meta tag and CSP if we have viewport dimensions
-                let modifiedContent = file.content;
-                
+                let modifiedContent = file.content || '';
+
                 // Use a more permissive CSP that relies on VS Code's built-in security
                 const iframeCSP = `<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https: http:; img-src 'self' data: blob: https: http: *; style-src 'self' 'unsafe-inline' data: https: http: *; script-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https: http: *; connect-src 'self' https: http: *; frame-src 'self' data: blob: https: http: *;">`;
-                
+
                 // Service worker approach for external resource loading
                 const serviceWorkerScript = `
                 <script${nonce ? ` nonce="${nonce}"` : ''}>
@@ -493,7 +493,7 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
                         setTimeout(processImages, 100);
                     }
                 </script>`;
-                
+
                 if (viewportDimensions) {
                     const viewportMeta = `<meta name="viewport" content="width=${viewportDimensions.width}, height=${viewportDimensions.height}, initial-scale=1.0">`;
                     if (modifiedContent.includes('<head>')) {
@@ -587,14 +587,14 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
                                 boxSizing: 'border-box'
                             }}
                             title="⚠️ Direct SVG rendering - potential security risk"
-                            dangerouslySetInnerHTML={{ __html: file.content }}
+                            dangerouslySetInnerHTML={{ __html: file.content || '' }}
                         />
                     );
                 }
-                
+
                 return (
                     <div
-                        dangerouslySetInnerHTML={{ __html: file.content }}
+                        dangerouslySetInnerHTML={{ __html: file.content || '' }}
                         style={{
                             width: '100%',
                             height: '100%',
@@ -611,15 +611,15 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
             default:
                 const placeholderIcon = file.fileType === 'svg' ? '🎨' : '🌐';
                 const placeholderHint = file.fileType === 'svg' ? 'SVG Vector Graphics' : 'HTML Design';
-                
+
                 return (
                     <div className="frame-placeholder">
                         <div className="placeholder-icon">{placeholderIcon}</div>
                         <p className="placeholder-name">{file.name}</p>
                         <div className="placeholder-meta">
-                            <span>{(file.size / 1024).toFixed(1)} KB</span>
-                            <span>{file.modified.toLocaleDateString()}</span>
-                            <span className="file-type">{file.fileType.toUpperCase()}</span>
+                            <span>{((file.size || 0) / 1024).toFixed(1)} KB</span>
+                            <span>{(file.modified || new Date()).toLocaleDateString()}</span>
+                            <span className="file-type">{(file.fileType || 'html').toUpperCase()}</span>
                         </div>
                         {renderMode === 'placeholder' && (
                             <small className="placeholder-hint">{placeholderHint} - Zoom in to load</small>
@@ -643,14 +643,14 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
                 opacity: isDragging ? 0.8 : 1
             }}
             onClick={handleClick}
-            title={`${file.name} (${(file.size / 1024).toFixed(1)} KB)`}
+            title={`${file.name} (${((file.size || 0) / 1024).toFixed(1)} KB)`}
             onMouseDown={handleMouseDown}
         >
             <div className="frame-header">
                 <span className="frame-title">
                     {file.name}
                     {designStatus !== 'draft' && (
-                        <span 
+                        <span
                             className="status-badge"
                             style={{
                                 marginLeft: '8px',
@@ -659,12 +659,12 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
                                 fontSize: '10px',
                                 fontWeight: 'bold',
                                 textTransform: 'uppercase',
-                                backgroundColor: 
+                                backgroundColor:
                                     designStatus === 'approved' ? 'var(--vscode-charts-green)' :
-                                    designStatus === 'review' ? 'var(--vscode-charts-yellow)' :
-                                    designStatus === 'archived' ? 'var(--vscode-charts-gray)' :
-                                    designStatus === 'exported' ? 'var(--vscode-charts-blue)' :
-                                    'transparent',
+                                        designStatus === 'review' ? 'var(--vscode-charts-yellow)' :
+                                            designStatus === 'archived' ? 'var(--vscode-charts-gray)' :
+                                                designStatus === 'exported' ? 'var(--vscode-charts-blue)' :
+                                                    'transparent',
                                 color: 'var(--vscode-button-foreground)',
                                 opacity: 0.9
                             }}
@@ -673,7 +673,7 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
                         </span>
                     )}
                 </span>
-                
+
                 {/* Viewport Controls */}
                 {onViewportChange && !useGlobalViewport && (
                     <div className="frame-viewport-controls">
@@ -700,7 +700,7 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
                         </button>
                     </div>
                 )}
-                
+
                 {/* Global viewport indicator */}
                 {useGlobalViewport && (
                     <div className="frame-viewport-indicator">
@@ -708,7 +708,7 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
                         <span className="viewport-icon">{getViewportIcon(viewport)}</span>
                     </div>
                 )}
-                
+
                 {showMetadata && (
                     <div className="frame-meta">
                         {isLoading && <span className="frame-status loading">●</span>}
@@ -721,7 +721,7 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
             </div>
             <div className="frame-content">
                 {renderContent()}
-                
+
                 {/* Drag prevention overlay - prevents iframe interaction during drag */}
                 {(dragPreventOverlay || isDragging) && isSelected && renderMode === 'iframe' && (
                     <div className="frame-drag-overlay">
@@ -733,7 +733,7 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
                         )}
                     </div>
                 )}
-                
+
                 {/* Loading overlay for iframe */}
                 {isLoading && renderMode === 'iframe' && (
                     <div className="frame-loading-overlay">
@@ -743,7 +743,7 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
                         </div>
                     </div>
                 )}
-                
+
                 {/* Error overlay */}
                 {hasError && (
                     <div className="frame-error-overlay">
@@ -754,12 +754,12 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
                         </div>
                     </div>
                 )}
-                
+
             </div>
-            
+
             {/* Floating Action Buttons - Outside frame, top-right corner */}
             {isSelected && !isDragging && (
-                <div 
+                <div
                     className="floating-action-buttons"
                     onClick={(e) => e.stopPropagation()}
                     onMouseDown={(e) => e.stopPropagation()}
@@ -770,11 +770,11 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
                         title="Create more variations based on this style"
                     >
                         <svg className="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <circle cx="6" cy="6" r="3"/>
-                            <circle cx="18" cy="18" r="3"/>
-                            <circle cx="18" cy="6" r="3"/>
-                            <path d="M18 9v6"/>
-                            <path d="M9 6h6"/>
+                            <circle cx="6" cy="6" r="3" />
+                            <circle cx="18" cy="18" r="3" />
+                            <circle cx="18" cy="6" r="3" />
+                            <path d="M18 9v6" />
+                            <path d="M9 6h6" />
                         </svg>
                         <span className="btn-text">Create variations</span>
                     </button>
@@ -784,11 +784,11 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
                         title="Create variations with feedback"
                     >
                         <svg className="btn-icon" viewBox="0 0 24 24" fill="none">
-                            <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4C7.58 4 4 7.58 4 12C4 16.42 7.58 20 12 20C15.73 20 18.84 17.45 19.73 14H17.65C16.83 16.33 14.61 18 12 18C8.69 18 6 15.31 6 12C6 8.69 8.69 6 12 6C13.66 6 15.14 6.69 16.22 7.78L13 11H20V4L17.65 6.35Z" fill="currentColor"/>
+                            <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4C7.58 4 4 7.58 4 12C4 16.42 7.58 20 12 20C15.73 20 18.84 17.45 19.73 14H17.65C16.83 16.33 14.61 18 12 18C8.69 18 6 15.31 6 12C6 8.69 8.69 6 12 6C13.66 6 15.14 6.69 16.22 7.78L13 11H20V4L17.65 6.35Z" fill="currentColor" />
                         </svg>
                         <span className="btn-text">Iterate with feedback</span>
                     </button>
-                    
+
                     {/* Copy Prompt Dropdown */}
                     <div className="copy-prompt-dropdown">
                         <button
@@ -803,27 +803,27 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
                             title="Copy file content with reference prompt"
                         >
                             <svg className="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.582a.5.5 0 0 1 0 .962L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>
-                                <path d="M20 3v4"/>
-                                <path d="M22 5h-4"/>
-                                <path d="M4 17v2"/>
-                                <path d="M5 18H3"/>
+                                <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.582a.5.5 0 0 1 0 .962L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
+                                <path d="M20 3v4" />
+                                <path d="M22 5h-4" />
+                                <path d="M4 17v2" />
+                                <path d="M5 18H3" />
                             </svg>
                             <span className="btn-text">{copyButtonState.text}</span>
                             <svg className="dropdown-arrow" viewBox="0 0 24 24" fill="none">
-                                <path d="M7 10L12 15L17 10H7Z" fill="currentColor"/>
+                                <path d="M7 10L12 15L17 10H7Z" fill="currentColor" />
                             </svg>
                         </button>
-                        
+
                         {showCopyDropdown && (
                             <div className="copy-dropdown-menu">
                                 <button
                                     className="copy-dropdown-item"
                                     onClick={(e) => handleCopyPrompt(e, 'cursor')}
                                 >
-                                    <img 
-                                        src={(window as any).__WEBVIEW_CONTEXT__?.logoUris?.cursor} 
-                                        alt="Cursor" 
+                                    <img
+                                        src={(window as any).__WEBVIEW_CONTEXT__?.logoUris?.cursor}
+                                        alt="Cursor"
                                         className="platform-logo"
                                         onError={(e) => {
                                             console.error('Failed to load Cursor logo:', (window as any).__WEBVIEW_CONTEXT__?.logoUris?.cursor);
@@ -837,9 +837,9 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
                                     className="copy-dropdown-item"
                                     onClick={(e) => handleCopyPrompt(e, 'windsurf')}
                                 >
-                                    <img 
-                                        src={(window as any).__WEBVIEW_CONTEXT__?.logoUris?.windsurf} 
-                                        alt="Windsurf" 
+                                    <img
+                                        src={(window as any).__WEBVIEW_CONTEXT__?.logoUris?.windsurf}
+                                        alt="Windsurf"
                                         className="platform-logo"
                                         onError={(e) => {
                                             console.error('Failed to load Windsurf logo:', (window as any).__WEBVIEW_CONTEXT__?.logoUris?.windsurf);
@@ -853,9 +853,9 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
                                     className="copy-dropdown-item"
                                     onClick={(e) => handleCopyPrompt(e, 'claude-code')}
                                 >
-                                    <img 
-                                        src={(window as any).__WEBVIEW_CONTEXT__?.logoUris?.claudeCode} 
-                                        alt="Claude Code" 
+                                    <img
+                                        src={(window as any).__WEBVIEW_CONTEXT__?.logoUris?.claudeCode}
+                                        alt="Claude Code"
                                         className="platform-logo"
                                         onError={(e) => {
                                             console.error('Failed to load Claude Code logo:', (window as any).__WEBVIEW_CONTEXT__?.logoUris?.claudeCode);
@@ -869,9 +869,9 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
                                     className="copy-dropdown-item"
                                     onClick={(e) => handleCopyPrompt(e, 'lovable')}
                                 >
-                                    <img 
-                                        src={(window as any).__WEBVIEW_CONTEXT__?.logoUris?.lovable} 
-                                        alt="Lovable" 
+                                    <img
+                                        src={(window as any).__WEBVIEW_CONTEXT__?.logoUris?.lovable}
+                                        alt="Lovable"
                                         className="platform-logo"
                                         onError={(e) => {
                                             console.error('Failed to load Lovable logo:', (window as any).__WEBVIEW_CONTEXT__?.logoUris?.lovable);
@@ -885,9 +885,9 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
                                     className="copy-dropdown-item"
                                     onClick={(e) => handleCopyPrompt(e, 'bolt')}
                                 >
-                                    <img 
-                                        src={(window as any).__WEBVIEW_CONTEXT__?.logoUris?.bolt} 
-                                        alt="Bolt" 
+                                    <img
+                                        src={(window as any).__WEBVIEW_CONTEXT__?.logoUris?.bolt}
+                                        alt="Bolt"
                                         className="platform-logo"
                                         onError={(e) => {
                                             console.error('Failed to load Bolt logo:', (window as any).__WEBVIEW_CONTEXT__?.logoUris?.bolt);
@@ -897,30 +897,30 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
                                     />
                                     <span>Bolt</span>
                                 </button>
-                                
+
                                 {/* Separator */}
                                 <div style={{ borderTop: '1px solid var(--vscode-dropdown-border)', margin: '4px 0' }} />
-                                
+
                                 {/* Open in Browser */}
                                 <button
                                     className="copy-dropdown-item"
                                     onClick={handleOpenInBrowser}
                                     title="Open in browser (full viewport, DevTools, external CDN resources)"
                                 >
-                                    <svg 
-                                        className="platform-logo" 
-                                        viewBox="0 0 24 24" 
+                                    <svg
+                                        className="platform-logo"
+                                        viewBox="0 0 24 24"
                                         fill="currentColor"
                                         style={{ width: '20px', height: '20px' }}
                                     >
-                                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+                                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" />
                                     </svg>
                                     <span>Open in Browser</span>
                                 </button>
 
                                 {/* Lifecycle Management Section */}
                                 <div style={{ borderTop: '1px solid var(--vscode-dropdown-border)', margin: '4px 0' }} />
-                                
+
                                 {/* Approve */}
                                 <button
                                     className="copy-dropdown-item"
@@ -932,17 +932,17 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
                                     title="Mark as approved (final design)"
                                     style={{ color: designStatus === 'approved' ? 'var(--vscode-charts-green)' : 'inherit' }}
                                 >
-                                    <svg 
-                                        className="platform-logo" 
-                                        viewBox="0 0 24 24" 
+                                    <svg
+                                        className="platform-logo"
+                                        viewBox="0 0 24 24"
                                         fill="currentColor"
                                         style={{ width: '20px', height: '20px' }}
                                     >
-                                        <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/>
+                                        <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" />
                                     </svg>
                                     <span>Approve</span>
                                 </button>
-                                
+
                                 {/* Archive */}
                                 <button
                                     className="copy-dropdown-item"
@@ -953,17 +953,17 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
                                     }}
                                     title="Archive (hide from main view)"
                                 >
-                                    <svg 
-                                        className="platform-logo" 
-                                        viewBox="0 0 24 24" 
+                                    <svg
+                                        className="platform-logo"
+                                        viewBox="0 0 24 24"
                                         fill="currentColor"
                                         style={{ width: '20px', height: '20px' }}
                                     >
-                                        <path d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 17.5L6.5 12H10v-2h4v2h3.5L12 17.5zM5.12 5l.81-1h12l.94 1H5.12z"/>
+                                        <path d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 17.5L6.5 12H10v-2h4v2h3.5L12 17.5zM5.12 5l.81-1h12l.94 1H5.12z" />
                                     </svg>
                                     <span>Archive</span>
                                 </button>
-                                
+
                                 {/* Delete */}
                                 <button
                                     className="copy-dropdown-item"
@@ -975,20 +975,20 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
                                     title="Delete permanently"
                                     style={{ color: 'var(--vscode-errorForeground)' }}
                                 >
-                                    <svg 
-                                        className="platform-logo" 
-                                        viewBox="0 0 24 24" 
+                                    <svg
+                                        className="platform-logo"
+                                        viewBox="0 0 24 24"
                                         fill="currentColor"
                                         style={{ width: '20px', height: '20px' }}
                                     >
-                                        <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                                        <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
                                     </svg>
                                     <span>Delete</span>
                                 </button>
                             </div>
                         )}
                     </div>
-                    
+
                     {/* Copy Design Path Button */}
                     <button
                         className={`floating-action-btn copy-path-btn ${copyPathButtonState.isSuccess ? 'success' : ''}`}
@@ -996,8 +996,8 @@ const DesignFrame: React.FC<DesignFrameProps> = ({
                         title="Copy absolute path of design file"
                     >
                         <svg className="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>
-                            <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
+                            <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+                            <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
                         </svg>
                         <span className="btn-text">{copyPathButtonState.text}</span>
                     </button>

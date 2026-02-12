@@ -37,6 +37,10 @@
 .search-box .codicon {
   color: var(--vscode-descriptionForeground);
   font-size: 14px;
+  min-width: 16px; /* Prevent collapse */
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .search-box input {
